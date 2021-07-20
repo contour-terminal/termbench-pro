@@ -1,0 +1,10 @@
+CI:
+    - .github/**
+CMake:
+    - "**CMakeLists.txt"
+    - cmake/**
+documentation:
+    - "**/*.md"
+    - docs/**
+test:
+    - src/**/*_test.cpp

@@ -1,0 +1,159 @@
+name: Build
+
+on:
+  push:
+    paths-ignore:
+    - 'docs/**'
+    - '.github/ISSUE_TEMPLATE/**'
+    - '.github/*.yml'
+    - 'LICENSE.txt'
+    - '*.md'
+    - '*.sh'
+    branches:
+    - master
+    - feature/**
+    - fix/**
+    - improvement/**
+  pull_request:
+    branches:
+    - master
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: 1
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
+
+jobs:
+  ubuntu_2004:
+    name: "Ubuntu Linux 20.04"
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: "**/cpm_modules"
+        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - name: set environment variables
+      id: set_vars
+      run: ./scripts/ci-set-vars.sh
+      env:
+        REPOSITORY: ${{ github.event.repository.name }}
+    - name: "install dependencies"
+      run: |
+        set -ex
+        sudo apt -q update
+        sudo ./scripts/install-deps.sh
+    - name: "create build directory"
+      run: mkdir build
+    - name: "cmake"
+      run: |
+        BUILD_DIR="build" \
+          CMAKE_BUILD_TYPE="RelWithDebInfo" \
+          CXX="g++-9" \
+          EXTRA_CMAKE_FLAGS="" \
+          ./scripts/ci-prepare-contour.sh
+    - name: "build"
+      run: cmake --build build/ -- -j3
+
+  ubuntu1804:
+    name: "Ubuntu Linux 18.04"
+    runs-on: ubuntu-18.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: "**/cpm_modules"
+        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - name: set environment variables
+      id: set_vars
+      run: ./scripts/ci-set-vars.sh
+      env:
+        REPOSITORY: ${{ github.event.repository.name }}
+    - name: "install dependencies"
+      run: |
+        set -ex
+        sudo apt -q update
+        sudo ./scripts/install-deps.sh
+    - name: "Get specific version CMake, v3.18.3"
+      uses: lukka/get-cmake@v3.18.3
+    - name: "create build directory"
+      run: mkdir build
+    - name: "cmake"
+      run: |
+        BUILD_DIR="build" \
+          CMAKE_BUILD_TYPE="Release" \
+          CXX="g++-8" \
+          EXTRA_CMAKE_FLAGS="-DCONTOUR_BLUR_PLATFORM_KWIN=ON -DUSE_BOOST_FILESYSTEM=ON" \
+          ./scripts/ci-prepare-contour.sh
+    - name: "build"
+      run: cmake --build build/ -- -j3
+
+  osx:
+    name: "OS/X"
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: "**/cpm_modules"
+        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - name: set variables
+      id: set_vars
+      run: ./scripts/ci-set-vars.sh
+      env:
+        REPOSITORY: ${{ github.event.repository.name }}
+    - name: "Install dependencies"
+      run: |
+        set -ex
+        #brew update
+        ./scripts/install-deps.sh
+    - name: "Create build directory"
+      run: mkdir build
+    - name: "Generate build files"
+      run: |
+        cmake . \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DYAML_BUILD_SHARED_LIBS=OFF -DYAML_CPP_BUILD_CONTRIB=OFF \
+              -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF \
+              -DYAML_CPP_INSTALL=OFF \
+              -DQt5_DIR="$(brew --prefix qt5)/lib/cmake/Qt5" \
+              -B build/
+    - name: "Build"
+      run: cmake --build build/
+
+  windows:
+    name: "Windows"
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: "**/cpm_modules"
+        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - name: setup environment
+      shell: powershell
+      id: set_vars
+      run: .\scripts\ci-set-vars.ps1
+      env:
+        REPOSITORY: ${{ github.event.repository.name }}
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v2
+    - name: "vcpkg: Install dependencies"
+      uses: lukka/run-vcpkg@v5
+      id: runvcpkg
+      with:
+        vcpkgArguments: freetype fontconfig harfbuzz
+        vcpkgDirectory: ${{ runner.workspace }}/vcpkg/
+        vcpkgGitCommitId: b063d0cee7389514a0841cf1e2e055d6466fe4b8
+        vcpkgTriplet: x64-windows
+    - name: "create build directory"
+      shell: powershell
+      run: |
+        If (!(Test-Path build))
+        {
+              New-Item -ItemType Directory -Force -Path build
+        }
+    - name: "Generate build files"
+      run: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ runner.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DYAML_BUILD_SHARED_LIBS=OFF -DCONTOUR_EXAMPLES=OFF -DLIBTERMINAL_TESTING=ON -DLIBUNICODE_TESTING=ON -DYAML_CPP_BUILD_CONTRIB=OFF -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF -DYAML_CPP_INSTALL=OFF -B build .
+    - name: "Build"
+      run: cmake --build build/ --config Release
