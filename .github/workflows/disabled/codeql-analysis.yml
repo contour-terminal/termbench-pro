@@ -42,20 +42,12 @@ jobs:
           set -ex
           cat /etc/apt/sources.list
           sudo apt -q update
-          sudo apt install -y "g++-9" \
-                  libfreetype6-dev \
-                  qtbase5-dev libqt5gui5 extra-cmake-modules libkf5windowsystem-dev \
-                  libfontconfig1-dev libharfbuzz-dev
+          sudo apt install -y "g++-9"
       - name: "create build directory"
         run: mkdir build
       - name: "cmake"
         run: |
-          cd build && cmake .. \
-            -DCONTOUR_BLUR_PLATFORM_KWIN=ON \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-9 \
-            -DYAML_BUILD_SHARED_LIBS=OFF -DYAML_CPP_BUILD_CONTRIB=OFF \
-            -DYAML_CPP_BUILD_TESTS=OFF -DYAML_CPP_BUILD_TOOLS=OFF \
-            -DYAML_CPP_INSTALL=OFF
+          cd build && cmake ..
       - name: "build"
         run: cmake --build build/ -- -j3
 
