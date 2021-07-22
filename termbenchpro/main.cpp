@@ -85,7 +85,7 @@ int main(int argc, char const* argv[])
 
     for (int i = 1; i < argc; ++i)
     {
-        if (argv[i] == "--null"sv)
+        if (argv[i] == "--null-sink"sv)
         {
             cout << fmt::format("Using null-sink.\n");
             nullSink = true;
