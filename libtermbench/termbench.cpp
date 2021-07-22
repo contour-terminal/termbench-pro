@@ -48,11 +48,13 @@ namespace
 
 using u16 = unsigned short;
 
-Benchmark::Benchmark(std::function<void(char const*, size_t n)> _writer,
+Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
                      size_t _testSizeMB,
                      unsigned short _width,
-                     unsigned short _height):
+                     unsigned short _height,
+                     function<void(Test const&)> _beforeTest):
     writer_{move(_writer)},
+    beforeTest_{move(_beforeTest)},
     testSizeMB_{_testSizeMB},
     width_{_width},
     height_{_height}
@@ -70,6 +72,9 @@ void Benchmark::runAll()
 
     for (auto& test: tests_)
     {
+        if (beforeTest_)
+            beforeTest_(*test);
+
         test->setup(width_, height_);
         test->run(*buffer);
 

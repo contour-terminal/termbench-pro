@@ -94,7 +94,8 @@ public:
     Benchmark(std::function<void(char const*, size_t n)> _writer,
               size_t _testSizeMB,
               unsigned short _width,
-              unsigned short _height);
+              unsigned short _height,
+              std::function<void(Test const&)> _beforeTest = {});
 
     void add(std::unique_ptr<Test> _test);
 
@@ -106,6 +107,7 @@ public:
 
 private:
     std::function<void(char const*, size_t)> writer_;
+    std::function<void(Test const&)> beforeTest_;
     size_t testSizeMB_;
     unsigned short width_;
     unsigned short height_;
