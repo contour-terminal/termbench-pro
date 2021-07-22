@@ -1,4 +1,4 @@
-# termbenchpro
+# termbench-pro
 
 Termbench Pro is the interim name for a project to benchmark
 the terminal emulators backend bandwidth throughput.
