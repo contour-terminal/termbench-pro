@@ -14,6 +14,7 @@
 #include "termbench.h"
 
 #include <cstdlib>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -23,6 +24,7 @@
 
 using std::function;
 using std::make_unique;
+using std::min;
 using std::string_view;
 using std::unique_ptr;
 
@@ -68,7 +70,7 @@ void Benchmark::add(unique_ptr<Test> _test)
 
 void Benchmark::runAll()
 {
-    auto buffer = make_unique<Buffer>(std::min(64ul, testSizeMB_));
+    auto buffer = make_unique<Buffer>(min(static_cast<size_t>(64u), testSizeMB_));
 
     for (auto& test: tests_)
     {

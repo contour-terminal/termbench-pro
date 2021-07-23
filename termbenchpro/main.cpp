@@ -36,9 +36,9 @@ using namespace std::placeholders;
 
 namespace
 {
-    tuple<unsigned short, unsigned short> getTerminalSize() noexcept
+    std::pair<unsigned short, unsigned short> getTerminalSize() noexcept
     {
-        auto constexpr DefaultSize = tuple<unsigned short, unsigned short>{80, 24};
+        auto const DefaultSize = std::pair<unsigned short, unsigned short>{80, 24};
 
 #if !defined(_WIN32)
         winsize ws;
@@ -59,24 +59,43 @@ namespace
     {
         auto constexpr PageSize = 4096; // 8192;
 
+        #if defined(_WIN32)
+        HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD nwritten{};
+        #endif
+
         while (_size >= PageSize)
         {
+            #if !defined(_WIN32)
             auto const n = write(STDOUT_FILENO, _data, PageSize);
             if (n < 0)
                 perror("write");
             _data += n;
             _size -= static_cast<size_t>(n);
+            #else
+            WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+            #endif
         }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-result"
+        #if !defined(_WIN32)
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wunused-result"
         write(STDOUT_FILENO, _data, _size);
-#pragma GCC diagnostic pop
+        #pragma GCC diagnostic pop
+        #else
+        WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+        #endif
     }
 }
 
 int main(int argc, char const* argv[])
 {
+    #if defined(_WIN32)
+    {
+        HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleMode(stdoutHandle, ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
+    #endif
     // TODO: Also run against NullSink to get a base value.
 
     auto [width, height] = getTerminalSize();
