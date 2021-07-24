@@ -38,11 +38,11 @@ namespace
 {
     std::string sizeStr(double _value)
     {
-        if (_value > (1024 * 1024 * 1024)) // GB
+        if ((long double)(_value) >= (1024ull * 1024ull * 1024ull)) // GB
+            return fmt::format("{:7.3f} GB", _value / 1024.0 / 1024.0 / 1024.0);
+        if (_value >= (1024 * 1024)) // MB
             return fmt::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
-        if (_value > (1024 * 1024)) // MB
-            return fmt::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
-        if (_value > 1024) // KB
+        if (_value >= 1024) // KB
             return fmt::format("{:7.3f} KB", _value / 1024.0);
         return fmt::format("{:7.3f} bytes", _value);
     }
@@ -107,7 +107,7 @@ void Benchmark::runAll()
 void Benchmark::summarize(std::ostream& os)
 {
     os << fmt::format("All {} tests finished.\n", results_.size());
-    os << fmt::format("=====================\n\n");
+    os << fmt::format("---------------------\n\n");
     auto const gridCellCount = width_ * height_;
 
     std::chrono::milliseconds totalTime{};
