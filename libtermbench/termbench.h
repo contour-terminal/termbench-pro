@@ -76,9 +76,9 @@ struct Test
         description{_description}
     {}
 
-    virtual void setup(unsigned short, unsigned short) noexcept {}
+    virtual void setup(unsigned short, unsigned short) {}
     virtual void run(Buffer&) noexcept = 0;
-    virtual void teardown(Buffer&) noexcept {}
+    virtual void teardown(Buffer&) {}
 };
 
 struct Result

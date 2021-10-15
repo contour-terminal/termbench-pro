@@ -212,16 +212,27 @@ class ManyLines: public Test
 public:
     ManyLines() noexcept: Test("many_lines", "") {}
 
+    void setup(unsigned short, unsigned short) override
+    {
+        text.resize(4 * 1024 * 1024);
+        for (auto i = text.data(), e = i + text.size(); i != e; ++i)
+        {
+            char const value = randomAsciiChar();
+            if (value % 26 != 0)
+                *i = value;
+            else
+                *i = '\n';
+        }
+    }
+
     void run(Buffer& _sink) noexcept override
     {
         while (_sink.good())
-        {
-            char const value = randomAsciiChar();
-            writeChar(_sink, value);
-            if (value % 26 == 0)
-                _sink.write("\n"sv);
-        }
+            _sink.write(text);
     }
+
+private:
+    std::string text;
 };
 
 class LongLines: public Test
@@ -318,11 +329,24 @@ class Binary: public Test
 public:
     Binary() noexcept: Test("binary", "") {}
 
+    void setup(unsigned short, unsigned short) override
+    {
+        text.resize(4 * 1024 * 1024);
+        for (auto i = text.data(), e = i + text.size(); i != e; ++i)
+        {
+            char const value = randomAsciiChar();
+            if (value % 26 != 0)
+                *i = value;
+            else
+                *i = '\n';
+        }
+    }
+
     void run(Buffer& _sink) noexcept override
     {
         while (_sink.good())
         {
-            writeChar(_sink, static_cast<char>(rand() % 256));
+            _sink.write(text);
         }
     }
 
@@ -330,6 +354,9 @@ public:
     {
         _sink.write("\033c");
     }
+
+private:
+    std::string text;
 };
 
 }
