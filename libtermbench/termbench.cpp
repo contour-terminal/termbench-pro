@@ -269,7 +269,7 @@ public:
         {
             for (u16 y = 0; y < height; ++y)
             {
-                moveCursor(_sink, 1, y + 1);
+                moveCursor(_sink, 1, y + 1u);
                 for (u16 x = 0; x < width; ++x)
                 {
                     auto const r = frameID;
@@ -304,7 +304,7 @@ public:
         {
             for (u16 y = 0; y < height; ++y)
             {
-                moveCursor(_sink, 1, y + 1);
+                moveCursor(_sink, 1, y + 1u);
                 for (u16 x = 0; x < width; ++x)
                 {
                     auto r = static_cast<uint8_t>(frameID);
