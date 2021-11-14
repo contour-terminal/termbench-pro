@@ -142,7 +142,8 @@ int main(int argc, char const* argv[])
 
     tb.runAll();
 
-    cout << "\033c\033[m\033[H\033J";
+    cout << "\033[m\033[H\033[J";
+    cout.flush();
     tb.summarize(cout);
 
     return EXIT_SUCCESS;
