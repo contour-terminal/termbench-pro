@@ -23,6 +23,7 @@ if(DEFINED MSVC)
     add_definitions(-D_USE_MATH_DEFINES)
 endif()
 
+find_package(fmt REQUIRED)
+
 add_subdirectory(libtermbench)
 add_subdirectory(termbenchpro)
-include(ThirdParties)
