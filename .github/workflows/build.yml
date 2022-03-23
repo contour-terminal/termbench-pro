@@ -20,18 +20,13 @@ on:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
-  CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
 
 jobs:
   ubuntu_2004:
     name: "Ubuntu Linux 20.04"
     runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: "**/cpm_modules"
-        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - uses: actions/checkout@v3
     - name: set environment variables
       id: set_vars
       run: ./scripts/ci-set-vars.sh
@@ -59,11 +54,7 @@ jobs:
     runs-on: ubuntu-18.04
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: "**/cpm_modules"
-        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+      uses: actions/checkout@v3
     - name: set environment variables
       id: set_vars
       run: ./scripts/ci-set-vars.sh
@@ -92,11 +83,7 @@ jobs:
     name: "OS/X"
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: "**/cpm_modules"
-        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - uses: actions/checkout@v3
     - name: set variables
       id: set_vars
       run: ./scripts/ci-set-vars.sh
@@ -125,11 +112,7 @@ jobs:
     name: "Windows"
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: "**/cpm_modules"
-        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+    - uses: actions/checkout@v3
     - name: setup environment
       shell: powershell
       id: set_vars
