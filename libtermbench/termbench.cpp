@@ -55,8 +55,8 @@ Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
                      unsigned short _width,
                      unsigned short _height,
                      function<void(Test const&)> _beforeTest):
-    writer_{move(_writer)},
-    beforeTest_{move(_beforeTest)},
+    writer_{std::move(_writer)},
+    beforeTest_{std::move(_beforeTest)},
     testSizeMB_{_testSizeMB},
     width_{_width},
     height_{_height}
@@ -65,7 +65,7 @@ Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
 
 void Benchmark::add(unique_ptr<Test> _test)
 {
-    tests_.emplace_back(move(_test));
+    tests_.emplace_back(std::move(_test));
 }
 
 void Benchmark::runAll()
