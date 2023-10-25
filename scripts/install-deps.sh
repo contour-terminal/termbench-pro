@@ -11,6 +11,7 @@ install_deps_ubuntu()
         cmake
         g++
         make
+        libfmt-dev
     )
 
     if [[ "${RELEASE}" < "19.04" ]]; then
@@ -37,7 +38,7 @@ main_linux()
 main_darwin()
 {
     # brew install cmake clang?
-    return
+    brew install fmt
 }
 
 main()
