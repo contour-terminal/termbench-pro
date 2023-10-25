@@ -1,9 +1,8 @@
-# termbench-pro
+# termbench
 
-Termbench Pro is the interim name for a project to benchmark
-the terminal emulators backend bandwidth throughput.
+Termbench is a project to benchmark the terminal emulators backend bandwidth throughput.
 
-Therefore not just a CLI executable will be provided but also a library
+Therefore not just a CLI executable (`tb`) will be provided but also a library
 that one can link against to test against your own terminal emulator backend
 without being affected by your rendering pipeline.
 
