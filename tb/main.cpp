@@ -1,5 +1,5 @@
 /**
- * This file is part of the "termbench-pro" project
+ * This file is part of the "termbench" project
  *   Copyright (c) 2021 Christian Parpart <christian@parpart.family>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
