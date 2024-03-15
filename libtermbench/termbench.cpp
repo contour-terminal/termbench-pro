@@ -14,13 +14,11 @@
 #include "termbench.h"
 
 #include <cstdlib>
+#include <format>
+#include <iostream>
 #include <memory>
 #include <ostream>
 #include <utility>
-
-#include <fmt/format.h>
-
-#include <iostream>
 
 using std::function;
 using std::make_unique;
@@ -38,15 +36,15 @@ namespace
 {
     std::string sizeStr(double _value)
     {
-        if ((long double)(_value) >= (1024ull * 1024ull * 1024ull)) // GB
-            return fmt::format("{:7.3f} GB", _value / 1024.0 / 1024.0 / 1024.0);
+        if ((long double) (_value) >= (1024ull * 1024ull * 1024ull)) // GB
+            return std::format("{:7.3f} GB", _value / 1024.0 / 1024.0 / 1024.0);
         if (_value >= (1024 * 1024)) // MB
-            return fmt::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
+            return std::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
         if (_value >= 1024) // KB
-            return fmt::format("{:7.3f} KB", _value / 1024.0);
-        return fmt::format("{:7.3f} bytes", _value);
+            return std::format("{:7.3f} KB", _value / 1024.0);
+        return std::format("{:7.3f} bytes", _value);
     }
-}
+} // namespace
 
 using u16 = unsigned short;
 
@@ -55,11 +53,11 @@ Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
                      unsigned short _width,
                      unsigned short _height,
                      function<void(Test const&)> _beforeTest):
-    writer_{std::move(_writer)},
-    beforeTest_{std::move(_beforeTest)},
-    testSizeMB_{_testSizeMB},
-    width_{_width},
-    height_{_height}
+    writer_ { std::move(_writer) },
+    beforeTest_ { std::move(_beforeTest) },
+    testSizeMB_ { _testSizeMB },
+    width_ { _width },
+    height_ { _height }
 {
 }
 
@@ -84,15 +82,18 @@ void Benchmark::runAll()
         auto const totalSizeBytes = testSizeMB_ * 1024 * 1024;
         auto const beginTime = steady_clock::now();
         auto remainingBytes = totalSizeBytes;
-        while (remainingBytes > 0)
-        {
-            auto const n = std::min(output.size(), remainingBytes);
-            writer_(output.data(), n);
-            remainingBytes -= n;
-        }
         auto const diff = duration_cast<milliseconds>(steady_clock::now() - beginTime);
+        while (diff < 1s)
+        {
+            while (remainingBytes > 0)
+            {
+                auto const n = std::min(output.size(), remainingBytes);
+                writer_(output.data(), n);
+                remainingBytes -= n;
+            }
+        }
 
-        results_.emplace_back(Result{*test, diff, totalSizeBytes});
+        results_.emplace_back(Result { *test, diff, totalSizeBytes });
 
         buffer->clear();
         test->teardown(*buffer);
@@ -103,14 +104,14 @@ void Benchmark::runAll()
         buffer->clear();
     }
 }
-
+//
 void Benchmark::summarize(std::ostream& os)
 {
-    os << fmt::format("All {} tests finished.\n", results_.size());
-    os << fmt::format("---------------------\n\n");
+    os << std::format("All {} tests finished.\n", results_.size());
+    os << std::format("---------------------\n\n");
     auto const gridCellCount = width_ * height_;
 
-    std::chrono::milliseconds totalTime{};
+    std::chrono::milliseconds totalTime {};
     size_t totalBytes = 0;
     for (auto const& result: results_)
     {
@@ -118,31 +119,27 @@ void Benchmark::summarize(std::ostream& os)
         auto const bps = double(result.bytesWritten) / (double(result.time.count()) / 1000.0);
         totalBytes += result.bytesWritten;
         totalTime += result.time;
-        os << fmt::format(
-            "{:>20}: {:>3}.{:04} seconds, {}/s (normalized: {}/s)\n",
-            test.name,
-            result.time.count() / 1000,
-            result.time.count() % 1000,
-            sizeStr(bps),
-            sizeStr(bps / static_cast<double>(gridCellCount))
-        );
+        os << std::format("{:>40}: {:>3}.{:04} seconds, {}/s (normalized: {}/s)\n",
+                          test.name,
+                          result.time.count() / 1000,
+                          result.time.count() % 1000,
+                          sizeStr(bps),
+                          sizeStr(bps / static_cast<double>(gridCellCount)));
     }
 
     auto const bps = double(totalBytes) / (double(totalTime.count()) / 1000.0);
-    os << fmt::format(
-        "{:>20}: {:>3}.{:04} seconds, {}/s (normalized: {}/s)\n",
-        "all tests",
-        totalTime.count() / 1000,
-        totalTime.count() % 1000,
-        sizeStr(bps),
-        sizeStr(bps / static_cast<double>(gridCellCount))
-    );
+    os << std::format("{:>40}: {:>3}.{:04} seconds, {}/s (normalized: {}/s)\n",
+                      "all tests",
+                      totalTime.count() / 1000,
+                      totalTime.count() % 1000,
+                      sizeStr(bps),
+                      sizeStr(bps / static_cast<double>(gridCellCount)));
     os << "\n";
-    os << fmt::format(" screen size: {}x{}\n", width_, height_);
-    os << fmt::format("   data size: {}\n", sizeStr(static_cast<double>(testSizeMB_ * 1024 * 1024)));
+    os << std::format(" screen size: {}x{}\n", width_, height_);
+    os << std::format("   data size: {}\n", sizeStr(static_cast<double>(testSizeMB_ * 1024 * 1024)));
 }
 
-}
+} // namespace contour::termbench
 
 namespace contour::termbench::tests
 {
@@ -150,216 +147,231 @@ namespace contour::termbench::tests
 namespace
 {
 
-static char randomAsciiChar()
-{
-    auto constexpr Min = 'a'; // 0x20;
-    auto constexpr Max = 'z'; // 0x7E;
-    return static_cast<char>(Min + rand() % (Max - Min + 1));
-}
-
-void writeChar(Buffer& _sink, char ch)
-{
-    _sink.write(std::string_view{&ch, 1});
-}
-
-void writeNumber(Buffer& _sink, unsigned _value)
-{
-    unsigned remains = _value;
-    for (unsigned divisor = 1000000000; divisor != 0; divisor /= 10)
+    static char randomAsciiChar()
     {
-        auto const digit = remains / divisor;
-        remains -= digit * divisor;
-
-        if (digit || (_value != remains) || (divisor == 1))
-            writeChar(_sink, static_cast<char>('0' + digit));
+        auto constexpr Min = 'a'; // 0x20;
+        auto constexpr Max = 'z'; // 0x7E;
+        return static_cast<char>(Min + rand() % (Max - Min + 1));
     }
-}
 
-void moveCursor(Buffer& _sink, unsigned x, unsigned y)
-{
-    writeChar(_sink, '\033');
-    writeChar(_sink, '[');
-    writeNumber(_sink, y);
-    writeChar(_sink, ';');
-    writeNumber(_sink, x);
-    writeChar(_sink, 'H');
-}
-
-void setTextColor(Buffer& _sink, uint8_t r, uint8_t g, uint8_t b)
-{
-    _sink.write("\033[38;2;");
-    writeNumber(_sink, r & 0xFF);
-    writeChar(_sink, ';');
-    writeNumber(_sink, g & 0xFF);
-    writeChar(_sink, ';');
-    writeNumber(_sink, b & 0xFF);
-    writeChar(_sink, 'm');
-}
-
-void setBackgroundColor(Buffer& _sink, uint8_t r, uint8_t g, uint8_t b)
-{
-    _sink.write("\033[48;2;");
-    writeNumber(_sink, r & 0xFF);
-    writeChar(_sink, ';');
-    writeNumber(_sink, g & 0xFF);
-    writeChar(_sink, ';');
-    writeNumber(_sink, b & 0xFF);
-    writeChar(_sink, 'm');
-}
-
-class ManyLines: public Test
-{
-public:
-    ManyLines() noexcept: Test("many_lines", "") {}
-
-    void setup(unsigned short, unsigned short) override
+    void writeChar(Buffer& _sink, char ch)
     {
-        text.resize(4 * 1024 * 1024);
-        for (auto i = text.data(), e = i + text.size(); i != e; ++i)
+        _sink.write(std::string_view { &ch, 1 });
+    }
+
+    void writeNumber(Buffer& _sink, unsigned _value)
+    {
+        unsigned remains = _value;
+        for (unsigned divisor = 1000000000; divisor != 0; divisor /= 10)
         {
-            char const value = randomAsciiChar();
-            if (value % 26 != 0)
-                *i = value;
-            else
-                *i = '\n';
+            auto const digit = remains / divisor;
+            remains -= digit * divisor;
+
+            if (digit || (_value != remains) || (divisor == 1))
+                writeChar(_sink, static_cast<char>('0' + digit));
         }
     }
 
-    void run(Buffer& _sink) noexcept override
+    void moveCursor(Buffer& _sink, unsigned x, unsigned y)
     {
-        while (_sink.good())
-            _sink.write(text);
+        writeChar(_sink, '\033');
+        writeChar(_sink, '[');
+        writeNumber(_sink, y);
+        writeChar(_sink, ';');
+        writeNumber(_sink, x);
+        writeChar(_sink, 'H');
     }
 
-private:
-    std::string text;
-};
-
-class LongLines: public Test
-{
-public:
-    LongLines() noexcept: Test("long_lines", "") {}
-
-    void run(Buffer& _sink) noexcept override
+    void setTextColor(Buffer& _sink, uint8_t r, uint8_t g, uint8_t b)
     {
-        while (_sink.good())
+        _sink.write("\033[38;2;");
+        writeNumber(_sink, r & 0xFF);
+        writeChar(_sink, ';');
+        writeNumber(_sink, g & 0xFF);
+        writeChar(_sink, ';');
+        writeNumber(_sink, b & 0xFF);
+        writeChar(_sink, 'm');
+    }
+
+    void setBackgroundColor(Buffer& _sink, uint8_t r, uint8_t g, uint8_t b)
+    {
+        _sink.write("\033[48;2;");
+        writeNumber(_sink, r & 0xFF);
+        writeChar(_sink, ';');
+        writeNumber(_sink, g & 0xFF);
+        writeChar(_sink, ';');
+        writeNumber(_sink, b & 0xFF);
+        writeChar(_sink, 'm');
+    }
+
+    class ManyLines: public Test
+    {
+      public:
+        ManyLines() noexcept: Test("many_lines", "") {}
+
+        void setup(unsigned short, unsigned short) override
         {
-            writeChar(_sink, randomAsciiChar());
-        }
-    }
-};
-
-class SgrFgColoredText: public Test
-{
-public:
-    SgrFgColoredText() noexcept: Test("sgr_fg_lines", "") {}
-
-    unsigned short width = 80;
-    unsigned short height = 24;
-
-    void setup(unsigned short _width, unsigned short _height) noexcept override
-    {
-        width = _width;
-        height = _height;
-    }
-
-    void run(Buffer& _sink) noexcept override
-    {
-        for (unsigned frameID = 0; _sink.good(); ++frameID)
-        {
-            for (u16 y = 0; y < height; ++y)
+            text.resize(4 * 1024 * 1024);
+            for (auto i = text.data(), e = i + text.size(); i != e; ++i)
             {
-                moveCursor(_sink, 1, y + 1u);
-                for (u16 x = 0; x < width; ++x)
-                {
-                    auto const r = frameID;
-                    auto const g = frameID + y;
-                    auto const b = frameID + y + x;
+                char const value = randomAsciiChar();
+                if (value % 26 != 0)
+                    *i = value;
+                else
+                    *i = '\n';
+            }
+        }
 
-                    setTextColor(_sink, r & 0xff, g & 0xff, b & 0xff);
-                    writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
+        void run(Buffer& _sink) noexcept override
+        {
+            while (_sink.good())
+                _sink.write(text);
+        }
+
+      private:
+        std::string text;
+    };
+
+    class LongLines: public Test
+    {
+      public:
+        LongLines() noexcept: Test("long_lines", "") {}
+
+        void run(Buffer& _sink) noexcept override
+        {
+            while (_sink.good())
+            {
+                writeChar(_sink, randomAsciiChar());
+            }
+        }
+    };
+
+    class SgrFgColoredText: public Test
+    {
+      public:
+        SgrFgColoredText() noexcept: Test("sgr_fg_lines", "") {}
+
+        unsigned short width = 80;
+        unsigned short height = 24;
+
+        void setup(unsigned short _width, unsigned short _height) noexcept override
+        {
+            width = _width;
+            height = _height;
+        }
+
+        void run(Buffer& _sink) noexcept override
+        {
+            for (unsigned frameID = 0; _sink.good(); ++frameID)
+            {
+                for (u16 y = 0; y < height; ++y)
+                {
+                    moveCursor(_sink, 1, y + 1u);
+                    for (u16 x = 0; x < width; ++x)
+                    {
+                        auto const r = frameID;
+                        auto const g = frameID + y;
+                        auto const b = frameID + y + x;
+
+                        setTextColor(_sink, r & 0xff, g & 0xff, b & 0xff);
+                        writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
+                    }
                 }
             }
         }
-    }
-};
+    };
 
-class SgrFgBgColoredText: public Test
-{
-public:
-    SgrFgBgColoredText() noexcept: Test("sgr_fg_bg_lines", "") {}
-
-    unsigned short width = 80;
-    unsigned short height = 24;
-
-    void setup(unsigned short _width, unsigned short _height) noexcept override
+    class SgrFgBgColoredText: public Test
     {
-        width = _width;
-        height = _height;
-    }
+      public:
+        SgrFgBgColoredText() noexcept: Test("sgr_fg_bg_lines", "") {}
 
-    void run(Buffer& _sink) noexcept override
-    {
-        for (unsigned frameID = 0; _sink.good(); ++frameID)
+        unsigned short width = 80;
+        unsigned short height = 24;
+
+        void setup(unsigned short _width, unsigned short _height) noexcept override
         {
-            for (u16 y = 0; y < height; ++y)
+            width = _width;
+            height = _height;
+        }
+
+        void run(Buffer& _sink) noexcept override
+        {
+            for (unsigned frameID = 0; _sink.good(); ++frameID)
             {
-                moveCursor(_sink, 1, y + 1u);
-                for (u16 x = 0; x < width; ++x)
+                for (u16 y = 0; y < height; ++y)
                 {
-                    auto r = static_cast<uint8_t>(frameID);
-                    auto g = static_cast<uint8_t>(frameID + y);
-                    auto b = static_cast<uint8_t>(frameID + y + x);
-                    setTextColor(_sink, r, g, b);
+                    moveCursor(_sink, 1, y + 1u);
+                    for (u16 x = 0; x < width; ++x)
+                    {
+                        auto r = static_cast<uint8_t>(frameID);
+                        auto g = static_cast<uint8_t>(frameID + y);
+                        auto b = static_cast<uint8_t>(frameID + y + x);
+                        setTextColor(_sink, r, g, b);
 
-                    r = static_cast<uint8_t>(frameID + y + x);
-                    g = static_cast<uint8_t>(frameID + y);
-                    b = static_cast<uint8_t>(frameID);
-                    setBackgroundColor(_sink, r, g, b);
+                        r = static_cast<uint8_t>(frameID + y + x);
+                        g = static_cast<uint8_t>(frameID + y);
+                        b = static_cast<uint8_t>(frameID);
+                        setBackgroundColor(_sink, r, g, b);
 
-                    writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
+                        writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
+                    }
                 }
             }
         }
-    }
-};
+    };
 
-class Binary: public Test
-{
-public:
-    Binary() noexcept: Test("binary", "") {}
-
-    void setup(unsigned short, unsigned short) override
+    class Binary: public Test
     {
-        text.resize(4 * 1024 * 1024);
-        for (auto i = text.data(), e = i + text.size(); i != e; ++i)
+      public:
+        Binary() noexcept: Test("binary", "") {}
+
+        void setup(unsigned short, unsigned short) override
         {
-            char const value = randomAsciiChar();
-            if (value % 26 != 0)
-                *i = value;
-            else
-                *i = '\n';
+            text.resize(4 * 1024 * 1024);
+            for (auto i = text.data(), e = i + text.size(); i != e; ++i)
+            {
+                char const value = randomAsciiChar();
+                if (value % 26 != 0)
+                    *i = value;
+                else
+                    *i = '\n';
+            }
         }
-    }
 
-    void run(Buffer& _sink) noexcept override
-    {
-        while (_sink.good())
+        void run(Buffer& _sink) noexcept override
         {
-            _sink.write(text);
+            while (_sink.good())
+            {
+                _sink.write(text);
+            }
         }
-    }
 
-    void teardown(Buffer& _sink) noexcept override
+        void teardown(Buffer& _sink) noexcept override { _sink.write("\033c"); }
+
+      private:
+        std::string text;
+    };
+
+    class Line: public Test
     {
-        _sink.write("\033c");
-    }
+      public:
+        Line(std::string name, std::string text): Test(name, ""), text { text } {}
+        void setup(unsigned short, unsigned short) override {}
 
-private:
-    std::string text;
-};
+        void run(Buffer& _sink) noexcept override
+        {
+            for (size_t i = 0; i < 1000; ++i)
+            {
+                while (_sink.good())
+                    _sink.write(text);
+            }
+        }
 
-}
+      private:
+        std::string text;
+    };
+} // namespace
 
 unique_ptr<Test> many_lines()
 {
@@ -386,4 +398,33 @@ unique_ptr<Test> binary()
     return make_unique<Binary>();
 }
 
+unique_ptr<Test> ascii_line(size_t N)
+{
+    auto name = std::to_string(N) + " chars per line";
+    auto text = std::string(N, 'a') + std::string { "\n" };
+    return make_unique<Line>(name, text);
 }
+
+unique_ptr<Test> sgr_line(size_t N)
+{
+    auto name = std::to_string(N) + " chars with sgr per line";
+    std::string text {};
+    text += std::string { "\033[38;2;20;200;200m" };
+    text += std::string(N, 'a');
+    text += std::string { "\n" };
+    text += std::string { "\033[38;2;255;255;255m" };
+    return make_unique<Line>(name, text);
+}
+
+unique_ptr<Test> sgrbg_line(size_t N)
+{
+    auto name = std::to_string(N) + " chars with sgr and bg per line";
+    std::string text {};
+    text += std::string { "\033[38;2;20;200;200m\033[48;2;100;100;100m" };
+    text += std::string(N, 'a');
+    text += std::string { "\033[38;2;255;255;255m\033[48;2;0;0;0m" };
+    text += std::string { "\n" };
+    return make_unique<Line>(name, text);
+}
+
+} // namespace contour::termbench::tests

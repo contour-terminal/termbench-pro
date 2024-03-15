@@ -27,21 +27,14 @@ namespace contour::termbench
 
 struct Buffer
 {
-public:
-    explicit Buffer(size_t _maxWriteSizeMB) noexcept:
-        maxWriteSize{_maxWriteSizeMB * 1024 * 1024}
-    {}
+  public:
+    explicit Buffer(size_t _maxWriteSizeMB) noexcept: maxWriteSize { _maxWriteSizeMB * 1024 * 1024 } {}
 
-    bool good() const noexcept
-    {
-        return nwritten < maxWriteSize;
-    }
+    bool good() const noexcept { return nwritten < maxWriteSize; }
 
     void write(std::string_view _data) noexcept
     {
-        auto const n = nwritten + _data.size() < maxWriteSize
-                     ? _data.size()
-                     : maxWriteSize - nwritten;
+        auto const n = nwritten + _data.size() < maxWriteSize ? _data.size() : maxWriteSize - nwritten;
         auto i = _data.data();
         auto p = data.data() + nwritten;
         auto e = data.data() + nwritten + n;
@@ -51,30 +44,29 @@ public:
         nwritten += n;
     }
 
-    std::string_view output() const noexcept { return std::string_view{data.data(), nwritten}; }
+    std::string_view output() const noexcept { return std::string_view { data.data(), nwritten }; }
 
     void clear() noexcept { nwritten = 0; }
     bool empty() const noexcept { return nwritten == 0; }
 
-private:
+  private:
     size_t maxWriteSize = 4 * 1024 * 1024;
 
-    std::array<char, 64 * 1024 * 1024> data{};
+    std::array<char, 64 * 1024 * 1024> data {};
     size_t nwritten = 0;
 };
 
 /// Describes a single test.
 struct Test
 {
-    std::string_view name;
-    std::string_view description;
+    std::string name;
+    std::string description;
 
     virtual ~Test() = default;
 
-    Test(std::string_view _name, std::string_view _description) noexcept:
-        name{_name},
-        description{_description}
-    {}
+    Test(std::string _name, std::string _description) noexcept: name { _name }, description { _description }
+    {
+    }
 
     virtual void setup(unsigned short, unsigned short) {}
     virtual void run(Buffer&) noexcept = 0;
@@ -90,7 +82,7 @@ struct Result
 
 class Benchmark
 {
-public:
+  public:
     Benchmark(std::function<void(char const*, size_t n)> _writer,
               size_t _testSizeMB,
               unsigned short _width,
@@ -105,7 +97,7 @@ public:
 
     std::vector<Result> const& results() const noexcept { return results_; }
 
-private:
+  private:
     std::function<void(char const*, size_t)> writer_;
     std::function<void(Test const&)> beforeTest_;
     size_t testSizeMB_;
@@ -116,14 +108,17 @@ private:
     std::vector<Result> results_;
 };
 
-}
+} // namespace contour::termbench
 
 // Holds a set of pre-defined terminal benchmark tests.
 namespace contour::termbench::tests
 {
-    std::unique_ptr<Test> many_lines();
-    std::unique_ptr<Test> long_lines();
-    std::unique_ptr<Test> sgr_fg_lines();
-    std::unique_ptr<Test> sgr_fgbg_lines();
-    std::unique_ptr<Test> binary();
-}
+std::unique_ptr<Test> many_lines();
+std::unique_ptr<Test> long_lines();
+std::unique_ptr<Test> sgr_fg_lines();
+std::unique_ptr<Test> sgr_fgbg_lines();
+std::unique_ptr<Test> binary();
+std::unique_ptr<Test> ascii_line(size_t);
+std::unique_ptr<Test> sgr_line(size_t);
+std::unique_ptr<Test> sgrbg_line(size_t);
+} // namespace contour::termbench::tests

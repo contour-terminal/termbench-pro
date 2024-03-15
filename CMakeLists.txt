@@ -28,9 +28,6 @@ if(DEFINED MSVC)
     add_definitions(-D_USE_MATH_DEFINES)
 endif()
 
-if(NOT TARGET fmt)
-    find_package(fmt REQUIRED)
-endif()
 
 add_subdirectory(libtermbench)
 add_subdirectory(tb)
