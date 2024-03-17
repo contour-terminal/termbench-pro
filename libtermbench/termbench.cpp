@@ -20,12 +20,6 @@
 #include <ostream>
 #include <utility>
 
-using std::function;
-using std::make_unique;
-using std::min;
-using std::string_view;
-using std::unique_ptr;
-
 using namespace std::chrono;
 using namespace std::string_view_literals;
 
@@ -48,11 +42,11 @@ namespace
 
 using u16 = unsigned short;
 
-Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
+Benchmark::Benchmark(std::function<void(char const*, size_t n)> _writer,
                      size_t _testSizeMB,
                      unsigned short _width,
                      unsigned short _height,
-                     function<void(Test const&)> _beforeTest):
+                     std::function<void(Test const&)> _beforeTest):
     writer_ { std::move(_writer) },
     beforeTest_ { std::move(_beforeTest) },
     testSizeMB_ { _testSizeMB },
@@ -61,7 +55,7 @@ Benchmark::Benchmark(function<void(char const*, size_t n)> _writer,
 {
 }
 
-void Benchmark::add(unique_ptr<Test> _test)
+void Benchmark::add(std::unique_ptr<Test> _test)
 {
     tests_.emplace_back(std::move(_test));
 }
@@ -80,7 +74,7 @@ void Benchmark::writeOutput(Buffer const& testBuffer)
 
 void Benchmark::runAll()
 {
-    auto buffer = make_unique<Buffer>(min(static_cast<size_t>(64u), testSizeMB_));
+    auto buffer = std::make_unique<Buffer>(std::min(static_cast<size_t>(64u), testSizeMB_));
 
     for (auto& test: tests_)
     {
@@ -92,11 +86,11 @@ void Benchmark::runAll()
 
         auto const beginTime = steady_clock::now();
         writeOutput(*buffer);
+        buffer->clear();
         auto const diff = duration_cast<milliseconds>(steady_clock::now() - beginTime);
 
         results_.emplace_back(*test, diff, totalSizeBytes());
 
-        buffer->clear();
         test->teardown(*buffer);
         if (!buffer->empty())
         {
@@ -374,39 +368,39 @@ namespace
     };
 } // namespace
 
-unique_ptr<Test> many_lines()
+std::unique_ptr<Test> many_lines()
 {
-    return make_unique<ManyLines>();
+    return std::make_unique<ManyLines>();
 }
 
-unique_ptr<Test> long_lines()
+std::unique_ptr<Test> long_lines()
 {
-    return make_unique<LongLines>();
+    return std::make_unique<LongLines>();
 }
 
-unique_ptr<Test> sgr_fg_lines()
+std::unique_ptr<Test> sgr_fg_lines()
 {
-    return make_unique<SgrFgColoredText>();
+    return std::make_unique<SgrFgColoredText>();
 }
 
-unique_ptr<Test> sgr_fgbg_lines()
+std::unique_ptr<Test> sgr_fgbg_lines()
 {
-    return make_unique<SgrFgBgColoredText>();
+    return std::make_unique<SgrFgBgColoredText>();
 }
 
-unique_ptr<Test> binary()
+std::unique_ptr<Test> binary()
 {
-    return make_unique<Binary>();
+    return std::make_unique<Binary>();
 }
 
-unique_ptr<Test> ascii_line(size_t N)
+std::unique_ptr<Test> ascii_line(size_t N)
 {
     auto name = std::to_string(N) + " chars per line";
     auto text = std::string(N, 'a') + std::string { "\n" };
-    return make_unique<Line>(name, text);
+    return std::make_unique<Line>(name, text);
 }
 
-unique_ptr<Test> sgr_line(size_t N)
+std::unique_ptr<Test> sgr_line(size_t N)
 {
     auto name = std::to_string(N) + " chars with sgr per line";
     std::string text {};
@@ -414,10 +408,10 @@ unique_ptr<Test> sgr_line(size_t N)
     text += std::string(N, 'a');
     text += std::string { "\n" };
     text += std::string { "\033[38;2;255;255;255m" };
-    return make_unique<Line>(name, text);
+    return std::make_unique<Line>(name, text);
 }
 
-unique_ptr<Test> sgrbg_line(size_t N)
+std::unique_ptr<Test> sgrbg_line(size_t N)
 {
     auto name = std::to_string(N) + " chars with sgr and bg per line";
     std::string text {};
@@ -425,7 +419,7 @@ unique_ptr<Test> sgrbg_line(size_t N)
     text += std::string(N, 'a');
     text += std::string { "\033[38;2;255;255;255m\033[48;2;0;0;0m" };
     text += std::string { "\n" };
-    return make_unique<Line>(name, text);
+    return std::make_unique<Line>(name, text);
 }
 
 } // namespace contour::termbench::tests
