@@ -1,0 +1,13 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 27,
+        "patch": 0
+    },
+    "include": [
+        "cmake/presets/os-linux.json",
+        "cmake/presets/os-macos.json",
+        "cmake/presets/os-windows.json"
+    ]
+}
