@@ -12,3 +12,10 @@ set_target_properties(tb PROPERTIES
 
 install(TARGETS tb RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
+add_custom_target(Xvfb-bench-run
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/Xvfb-bench-run.sh $<TARGET_FILE:tb>
+    VERBATIM
+    USES_TERMINAL
+    DEPENDS tb
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)

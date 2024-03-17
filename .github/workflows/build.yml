@@ -90,7 +90,7 @@ jobs:
     - name: "Install kitty and xterm"
       run: sudo apt install -y kitty xterm xvfb
     - name: "run benchmarks"
-      run: ./scripts/Xvfb-bench-run.sh
+      run: ./scripts/Xvfb-bench-run.sh ./build/tb/tb
     - name: "ls"
       run: ls -la
     - name: "cat contour_results"
