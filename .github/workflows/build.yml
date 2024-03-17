@@ -23,6 +23,26 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
 jobs:
+
+
+  check_clang_format:
+    name: "Check C++ style"
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install clang
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 17
+        sudo apt-get install clang-format-17
+    - name: "Clang-format libtermbench"
+      run: find ./libtermbench -name "*.cpp" -o -name "*.h" | xargs clang-format-17 --Werror --dry-run
+    - name: "Clang-format tb1"
+      run: find ./tb -name "*.cpp" -o -name "*.h" | xargs clang-format-17 --Werror --dry-run
+    - name: "Check includes"
+      run: ./scripts/check-includes.sh
+
   ubuntu_linux:
     name: "Ubuntu Linux 22.04"
     runs-on: ubuntu-22.04
@@ -43,62 +63,56 @@ jobs:
         set -ex
         sudo apt -q update
         sudo ./scripts/install-deps.sh
+    - name: "Install GCC 13"
+      run: sudo apt install g++-13
     - name: "cmake"
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE="RelWithDebInfo"
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE="RelWithDebInfo" -D CMAKE_CXX_COMPILER="g++-13"
     - name: "build"
       run: cmake --build build/ -- -j3
-
-  osx:
-    name: "OS/X"
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions/cache@v2
-      with:
-        path: "**/cpm_modules"
-        key: ${{github.workflow}}-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
-    - name: set variables
-      id: set_vars
-      run: ./scripts/ci-set-vars.sh
-      env:
-        REPOSITORY: ${{ github.event.repository.name }}
-    - name: "Install dependencies"
+    - name: "install dependencies"
+      run: ./scripts/xvfb-deps.sh
+    - name: "Install contour"
+      run: |
+        wget https://github.com/contour-terminal/contour/releases/download/v0.4.3.6442/contour-0.4.3.6442-ubuntu22.04-amd64.deb
+        sudo dpkg -i contour-0.4.3.6442-ubuntu22.04-amd64.deb
+    - name: "create and patch contour.yml config file"
       run: |
         set -ex
-        #brew update
-        ./scripts/install-deps.sh
-    - name: "Create build directory"
-      run: mkdir build
-    - name: "Generate build files"
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE="RelWithDebInfo"
-    - name: "Build"
-      run: cmake --build build/
-
-  windows:
-    name: "Windows"
-    runs-on: windows-latest
-    steps:
-    - uses: actions/checkout@v2
-    - name: setup environment
-      shell: powershell
-      id: set_vars
-      run: .\scripts\ci-set-vars.ps1
-      env:
-        REPOSITORY: ${{ github.event.repository.name }}
-    - name: "vcpkg: Install dependencies"
-      uses: lukka/run-vcpkg@v11.1
-      id: runvcpkg
+        mkdir -p ~/.config/contour/
+        contour generate config to ~/.config/contour/contour.yml
+        sed -i -e 's/locator: native/locator: mock/' ~/.config/contour/contour.yml
+        sed -i -e 's/strict_spacing: true/strict_spacing: false/' ~/.config/contour/contour.yml
+        sed -i -e 's/columns: 80/columns: 100/' ~/.config/contour/contour.yml
+        cat .github/mock-font-locator.yml >> ~/.config/contour/contour.yml
+        cat ~/.config/contour/contour.yml
+    - name: "Install alacritty"
+      run: cargo install alacritty
+    - name: "Install kitty and xterm"
+      run: sudo apt install -y kitty xterm xvfb
+    - name: "run benchmarks"
+      run: ./scripts/Xvfb-bench-run.sh
+    - name: "ls"
+      run: ls -la
+    - name: "cat contour_results"
+      run: cat contour_results
+    - name: "cat kitty_results"
+      run: cat kitty_results
+    - name: "cat xterm_results"
+      run: cat xterm_results
+    - name: "cat alacritty_results"
+      run: cat alacritty_results
+    - name: "Set up Julia"
+      uses: julia-actions/setup-julia@v1
+    - name: "Create Plots"
+      run: julia ./scripts/plot_results.jl
+    - name: "Upload results and plot"
+      uses: actions/upload-artifact@v3
       with:
-        vcpkgDirectory: ${{ runner.workspace }}/vcpkg/
-        vcpkgGitCommitId: 3e93bb69a1cadeb36fe9eca3b6f3912d84f618d5
-    - name: "create build directory"
-      shell: powershell
-      run: |
-        If (!(Test-Path build))
-        {
-              New-Item -ItemType Directory -Force -Path build
-        }
-    - name: "Generate build files"
-      run: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="${{ runner.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -B build .
-    - name: "Build"
-      run: cmake --build build/ --config Release
+        name: benchmark_results
+        path: |
+          results_full.png
+          results_ascii.png
+          contour_results
+          alacritty_results
+          xterm_results
+          kitty_results

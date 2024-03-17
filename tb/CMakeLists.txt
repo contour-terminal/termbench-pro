@@ -1,7 +1,7 @@
 include(GNUInstallDirs)
 
 add_executable(tb main.cpp)
-target_link_libraries(tb PRIVATE termbench fmt::fmt-header-only)
+target_link_libraries(tb PRIVATE termbench)
 
 # Set the RPATH so that the executable can find the shared libraries
 # when installed in a non-standard location

@@ -22,7 +22,6 @@ set_target_properties(termbench PROPERTIES
     VERSION "${PROJECT_VERSION}"
     SOVERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
 )
-target_link_libraries(termbench PUBLIC fmt::fmt-header-only)
 
 target_include_directories(termbench PUBLIC $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}>
                                             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
