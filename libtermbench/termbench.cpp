@@ -66,6 +66,18 @@ void Benchmark::add(unique_ptr<Test> _test)
     tests_.emplace_back(std::move(_test));
 }
 
+void Benchmark::writeOutput(Buffer const& testBuffer)
+{
+    auto const output = testBuffer.output();
+    auto remainingBytes = totalSizeBytes();
+    while (remainingBytes > 0)
+    {
+        auto const n = std::min(output.size(), remainingBytes);
+        writer_(output.data(), n);
+        remainingBytes -= n;
+    }
+}
+
 void Benchmark::runAll()
 {
     auto buffer = make_unique<Buffer>(min(static_cast<size_t>(64u), testSizeMB_));
@@ -78,30 +90,19 @@ void Benchmark::runAll()
         test->setup(width_, height_);
         test->run(*buffer);
 
-        auto const output = buffer->output();
-        auto const totalSizeBytes = testSizeMB_ * 1024 * 1024;
         auto const beginTime = steady_clock::now();
-        auto remainingBytes = totalSizeBytes;
+        writeOutput(*buffer);
         auto const diff = duration_cast<milliseconds>(steady_clock::now() - beginTime);
-        while (diff < 1s)
-        {
-            while (remainingBytes > 0)
-            {
-                auto const n = std::min(output.size(), remainingBytes);
-                writer_(output.data(), n);
-                remainingBytes -= n;
-            }
-        }
 
-        results_.emplace_back(Result { *test, diff, totalSizeBytes });
+        results_.emplace_back(*test, diff, totalSizeBytes());
 
         buffer->clear();
         test->teardown(*buffer);
-        if (buffer->empty())
-            continue;
-
-        writer_(buffer->output().data(), buffer->output().size());
-        buffer->clear();
+        if (!buffer->empty())
+        {
+            writer_(buffer->output().data(), buffer->output().size());
+            buffer->clear();
+        }
     }
 }
 //

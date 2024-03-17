@@ -97,7 +97,11 @@ class Benchmark
 
     std::vector<Result> const& results() const noexcept { return results_; }
 
+    constexpr size_t totalSizeBytes() const noexcept { return testSizeMB_ * 1024 * 1024; }
+
   private:
+    void writeOutput(Buffer const& testBuffer);
+
     std::function<void(char const*, size_t)> writer_;
     std::function<void(Test const&)> beforeTest_;
     size_t testSizeMB_;

@@ -23,29 +23,39 @@
 
 using std::cerr;
 using std::cout;
-using std::stoul;
-using std::tuple;
 
 using namespace std::string_view_literals;
 using namespace std::placeholders;
 
 #if !defined(_WIN32)
     #include <sys/ioctl.h>
+    #include <sys/stat.h>
 
     #include <unistd.h>
 #else
     #include <Windows.h>
 #endif
 
+#define STDOUT_FASTPATH_FD 3
+
 namespace
 {
-std::pair<unsigned short, unsigned short> getTerminalSize() noexcept
+
+struct TerminalSize
 {
-    auto const DefaultSize = std::pair<unsigned short, unsigned short> { 80, 24 };
+    unsigned short columns = 0;
+    unsigned short lines = 0;
+
+    constexpr auto operator<=>(TerminalSize const&) const noexcept = default;
+};
+
+TerminalSize getTerminalSize() noexcept
+{
+    auto const DefaultSize = TerminalSize { 80, 24 };
 
 #if !defined(_WIN32)
     winsize ws;
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0)
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0)
         return DefaultSize;
     return { ws.ws_col, ws.ws_row };
 #else
@@ -58,6 +68,7 @@ void nullWrite(char const*, size_t)
 {
 }
 
+template <const std::size_t StdoutFileNo>
 void chunkedWriteToStdout(char const* _data, size_t _size)
 {
     auto constexpr PageSize = 4096; // 8192;
@@ -70,7 +81,7 @@ void chunkedWriteToStdout(char const* _data, size_t _size)
     while (_size >= PageSize)
     {
 #if !defined(_WIN32)
-        auto const n = write(STDOUT_FILENO, _data, PageSize);
+        auto const n = write(StdoutFileNo, _data, PageSize);
         if (n < 0)
             perror("write");
         _data += n;
@@ -83,7 +94,7 @@ void chunkedWriteToStdout(char const* _data, size_t _size)
 #if !defined(_WIN32)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wunused-result"
-    write(STDOUT_FILENO, _data, _size);
+    write(StdoutFileNo, _data, _size);
     #pragma GCC diagnostic pop
 #else
     WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
@@ -101,9 +112,12 @@ int main(int argc, char const* argv[])
 #endif
     // TODO: Also run against NullSink to get a base value.
 
-    auto [width, height] = getTerminalSize();
+    auto const initialTerminalSize = getTerminalSize();
+    auto requestedTerminalSize = initialTerminalSize;
     size_t testSizeMB = 32;
     bool nullSink = false;
+    bool stdoutFastPath = false;
+    bool columnByColumn = false;
     std::string fileout {};
 
     for (int i = 1; i < argc; ++i)
@@ -113,14 +127,35 @@ int main(int argc, char const* argv[])
             cout << std::format("Using null-sink.\n");
             nullSink = true;
         }
+        else if (argv[i] == "--fixed-size"sv)
+        {
+            requestedTerminalSize.columns = 200;
+            requestedTerminalSize.lines = 30;
+        }
+        else if (argv[i] == "--stdout-fastpath"sv)
+        {
+#if !defined(_WIN32)
+            struct stat st;
+            stdoutFastPath = fstat(STDOUT_FASTPATH_FD, &st) == 0;
+#else
+            std::cout << std::format("Ignoring {}\n", argv[i]);
+#endif
+        }
+        else if (argv[i] == "--column-by-column"sv)
+        {
+            cout << std::format("Enabling column-by-column tests.\n");
+            columnByColumn = true;
+        }
         else if (argv[i] == "--size"sv && i + 1 < argc)
         {
             ++i;
-            testSizeMB = static_cast<size_t>(stoul(argv[i]));
+            testSizeMB = static_cast<size_t>(std::stoul(argv[i]));
         }
         else if (argv[i] == "--help"sv || argv[i] == "-h"sv)
         {
-            cout << std::format("{} [--null-sink] [--size MB]\n", argv[0]);
+            cout << std::format("{} [--null-sink] [--fixed-size] [--stdout-fastpath] [--column-by-column] "
+                                "[--size MB] [--output FILE] [--help]\n",
+                                argv[0]);
             return EXIT_SUCCESS;
         }
         else if (argv[i] == "--output"sv && i + 1 < argc)
@@ -135,10 +170,14 @@ int main(int argc, char const* argv[])
         }
     }
 
-    contour::termbench::Benchmark tb { nullSink ? nullWrite : chunkedWriteToStdout,
+    auto const writer = nullSink         ? nullWrite
+                        : stdoutFastPath ? chunkedWriteToStdout<STDOUT_FASTPATH_FD>
+                                         : chunkedWriteToStdout<STDOUT_FILENO>;
+
+    contour::termbench::Benchmark tb { writer,
                                        testSizeMB, // MB per test
-                                       width,
-                                       height };
+                                       requestedTerminalSize.columns,
+                                       requestedTerminalSize.lines };
 
     // mlfgb
     tb.add(contour::termbench::tests::many_lines());
@@ -146,17 +185,22 @@ int main(int argc, char const* argv[])
     tb.add(contour::termbench::tests::sgr_fg_lines());
     tb.add(contour::termbench::tests::sgr_fgbg_lines());
     tb.add(contour::termbench::tests::binary());
-    // tb.add(contour::termbench::tests::binary());
-    constexpr size_t Max_lines { 200 };
-    for (size_t i = 0; i < Max_lines; ++i)
-        tb.add(contour::termbench::tests::ascii_line(i));
-    for (size_t i = 0; i < Max_lines; ++i)
-        tb.add(contour::termbench::tests::sgr_line(i));
-    for (size_t i = 0; i < Max_lines; ++i)
-        tb.add(contour::termbench::tests::sgrbg_line(i));
+    if (columnByColumn)
+    {
+        auto const maxColumns { requestedTerminalSize.columns * 2u };
+        for (size_t i = 0; i < maxColumns; ++i)
+            tb.add(contour::termbench::tests::ascii_line(i));
+        for (size_t i = 0; i < maxColumns; ++i)
+            tb.add(contour::termbench::tests::sgr_line(i));
+        for (size_t i = 0; i < maxColumns; ++i)
+            tb.add(contour::termbench::tests::sgrbg_line(i));
+    }
 
-    cout << "\033[8;30;100t";
-    cout.flush();
+    if (requestedTerminalSize != initialTerminalSize)
+    {
+        cout << std::format("\033[8;{};{};t", requestedTerminalSize.lines, requestedTerminalSize.columns);
+        cout.flush();
+    }
 
     tb.runAll();
 
