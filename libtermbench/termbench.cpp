@@ -58,6 +58,18 @@ void Benchmark::add(std::unique_ptr<Test> _test)
     tests_.emplace_back(std::move(_test));
 }
 
+void Benchmark::updateWindowTitle(std::string_view _title)
+{
+    auto const now = steady_clock::now();
+    if (now - lastWindowTitleUpdate_ < 100ms)
+        return;
+
+    lastWindowTitleUpdate_ = now;
+    std::cout << std::format("\033]2;{}\033\\", _title);
+    std::cout.flush();
+}
+
+
 void Benchmark::writeOutput(Buffer const& testBuffer)
 {
     auto const output = testBuffer.output();
@@ -82,7 +94,14 @@ void Benchmark::runAll()
         test->setup(terminalSize_);
 
         while (buffer->good())
+        {
             test->fill(*buffer);
+
+            updateWindowTitle(std::format("{}: filling buffer {:.3}%",
+                                          test->name,
+                                          static_cast<double>(buffer->size())
+                                              / static_cast<double>(1024 * 1024 * testSizeMB_)));
+        }
 
         auto const beginTime = steady_clock::now();
         writeOutput(*buffer);
@@ -198,6 +217,20 @@ namespace
         writeNumber(_sink, b & 0xFF);
         writeChar(_sink, 'm');
     }
+
+    class CraftedTest: public Test
+    {
+      public:
+        explicit CraftedTest(std::string name, std::string description, std::string text) noexcept:
+            Test(std::move(name), std::move(description)), _text { std::move(text) }
+        {
+        }
+
+        void fill(Buffer& _sink) noexcept override { _sink.write(_text); }
+
+      private:
+        std::string _text;
+    };
 
     class ManyLines: public Test
     {
@@ -384,6 +417,11 @@ std::unique_ptr<Test> sgrbg_line(size_t N)
     text += std::string { "\033[38;2;255;255;255m\033[48;2;0;0;0m" };
     text += std::string { "\n" };
     return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> crafted(std::string name, std::string description, std::string text)
+{
+    return std::make_unique<CraftedTest>(std::move(name), std::move(description), std::move(text));
 }
 
 } // namespace termbench::tests

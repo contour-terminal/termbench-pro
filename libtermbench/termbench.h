@@ -13,7 +13,6 @@
  */
 #pragma once
 
-#include <array>
 #include <chrono>
 #include <cstring>
 #include <functional>
@@ -52,6 +51,7 @@ struct Buffer
 
     void clear() noexcept { _data.clear(); }
     bool empty() const noexcept { return _data.empty(); }
+    size_t size() const noexcept { return _data.size(); }
 
   private:
     std::string _data;
@@ -102,11 +102,13 @@ class Benchmark
 
   private:
     void writeOutput(Buffer const& testBuffer);
+    void updateWindowTitle(std::string_view _title);
 
     std::function<void(char const*, size_t)> writer_;
     std::function<void(Test const&)> beforeTest_;
     size_t testSizeMB_;
     TerminalSize terminalSize_;
+    std::chrono::steady_clock::time_point lastWindowTitleUpdate_;
 
     std::vector<std::unique_ptr<Test>> tests_;
     std::vector<Result> results_;
@@ -125,4 +127,5 @@ std::unique_ptr<Test> binary();
 std::unique_ptr<Test> ascii_line(size_t);
 std::unique_ptr<Test> sgr_line(size_t);
 std::unique_ptr<Test> sgrbg_line(size_t);
+std::unique_ptr<Test> crafted(std::string name, std::string description, std::string text);
 } // namespace termbench::tests

@@ -16,6 +16,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
@@ -102,6 +103,7 @@ struct BenchSettings
     size_t testSizeMB = 32;
     bool nullSink = false;
     bool stdoutFastPath = false;
+    std::vector<std::filesystem::path> craftedTests {};
     bool columnByColumn = false;
     std::string fileout {};
     std::optional<int> earlyExitCode = std::nullopt;
@@ -144,7 +146,7 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
         else if (argv[i] == "--help"sv || argv[i] == "-h"sv)
         {
             cout << std::format("{} [--null-sink] [--fixed-size] [--stdout-fastpath] [--column-by-column] "
-                                "[--size MB] [--output FILE] [--help]\n",
+                                "[--size MB] [--from-file FILE] [--output FILE] [--help]\n",
                                 argv[0]);
             return { .earlyExitCode = EXIT_SUCCESS };
         }
@@ -152,6 +154,16 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
         {
             ++i;
             settings.fileout = argv[i];
+        }
+        else if (argv[i] == "--from-file"sv && i + 1 < argc)
+        {
+            ++i;
+            if (!std::filesystem::exists(argv[i]))
+            {
+                cerr << std::format("Failed to open file '{}'.\n", argv[i]);
+                return { .earlyExitCode = EXIT_FAILURE };
+            }
+            settings.craftedTests.emplace_back(argv[i]);
         }
         else
         {
@@ -162,13 +174,38 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
     return settings;
 }
 
-void addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings)
+std::string loadFileContents(std::filesystem::path const& path)
+{
+    std::ifstream file { path };
+    if (!file)
+        return {};
+
+    std::string content;
+    std::size_t const fileSize = std::filesystem::file_size(path);
+    content.resize(fileSize);
+    file.read(content.data(), static_cast<std::streamsize>(fileSize));
+    return content;
+}
+
+bool addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings)
 {
     tb.add(termbench::tests::many_lines());
     tb.add(termbench::tests::long_lines());
     tb.add(termbench::tests::sgr_fg_lines());
     tb.add(termbench::tests::sgr_fgbg_lines());
     tb.add(termbench::tests::binary());
+    // TODO: The above tests should also be configurable via command line (-mlfgb).
+
+    for (auto const& test: settings.craftedTests)
+    {
+        auto content = loadFileContents(test);
+        if (content.empty())
+        {
+            cerr << std::format("Failed to load file '{}'.\n", test.string());
+            return false;
+        }
+        tb.add(termbench::tests::crafted(test.filename(), "", std::move(content)));
+    }
 
     if (settings.columnByColumn)
     {
@@ -180,6 +217,8 @@ void addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings
         for (size_t i = 0; i < maxColumns; ++i)
             tb.add(termbench::tests::sgrbg_line(i));
     }
+
+    return true;
 }
 
 void changeTerminalSize(TerminalSize requestedTerminalSize)
@@ -233,7 +272,8 @@ int main(int argc, char const* argv[])
                               settings.testSizeMB, // MB per test
                               settings.requestedTerminalSize };
 
-    addTestsToBenchmark(tb, settings);
+    if (!addTestsToBenchmark(tb, settings))
+        return EXIT_FAILURE;
 
     WithScopedTerminalSize {
         initialTerminalSize,
