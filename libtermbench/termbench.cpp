@@ -44,14 +44,12 @@ using u16 = unsigned short;
 
 Benchmark::Benchmark(std::function<void(char const*, size_t n)> _writer,
                      size_t _testSizeMB,
-                     unsigned short _width,
-                     unsigned short _height,
+                     TerminalSize terminalSize,
                      std::function<void(Test const&)> _beforeTest):
     writer_ { std::move(_writer) },
     beforeTest_ { std::move(_beforeTest) },
     testSizeMB_ { _testSizeMB },
-    width_ { _width },
-    height_ { _height }
+    terminalSize_ { terminalSize }
 {
 }
 
@@ -81,7 +79,7 @@ void Benchmark::runAll()
         if (beforeTest_)
             beforeTest_(*test);
 
-        test->setup(width_, height_);
+        test->setup(terminalSize_);
         test->run(*buffer);
 
         auto const beginTime = steady_clock::now();
@@ -104,7 +102,7 @@ void Benchmark::summarize(std::ostream& os)
 {
     os << std::format("All {} tests finished.\n", results_.size());
     os << std::format("---------------------\n\n");
-    auto const gridCellCount = width_ * height_;
+    auto const gridCellCount = terminalSize_.columns * terminalSize_.lines;
 
     std::chrono::milliseconds totalTime {};
     size_t totalBytes = 0;
@@ -130,7 +128,7 @@ void Benchmark::summarize(std::ostream& os)
                       sizeStr(bps),
                       sizeStr(bps / static_cast<double>(gridCellCount)));
     os << "\n";
-    os << std::format(" screen size: {}x{}\n", width_, height_);
+    os << std::format(" screen size: {}x{}\n", terminalSize_.columns, terminalSize_.lines);
     os << std::format("   data size: {}\n", sizeStr(static_cast<double>(testSizeMB_ * 1024 * 1024)));
 }
 
@@ -204,7 +202,7 @@ namespace
       public:
         ManyLines() noexcept: Test("many_lines", "") {}
 
-        void setup(unsigned short, unsigned short) override
+        void setup(TerminalSize) override
         {
             text.resize(4 * 1024 * 1024);
             for (auto i = text.data(), e = i + text.size(); i != e; ++i)
@@ -246,23 +244,21 @@ namespace
       public:
         SgrFgColoredText() noexcept: Test("sgr_fg_lines", "") {}
 
-        unsigned short width = 80;
-        unsigned short height = 24;
+        TerminalSize terminalSize;
 
-        void setup(unsigned short _width, unsigned short _height) noexcept override
+        void setup(TerminalSize size) noexcept override
         {
-            width = _width;
-            height = _height;
+            terminalSize = size;
         }
 
         void run(Buffer& _sink) noexcept override
         {
             for (unsigned frameID = 0; _sink.good(); ++frameID)
             {
-                for (u16 y = 0; y < height; ++y)
+                for (u16 y = 0; y < terminalSize.lines; ++y)
                 {
                     moveCursor(_sink, 1, y + 1u);
-                    for (u16 x = 0; x < width; ++x)
+                    for (u16 x = 0; x < terminalSize.columns; ++x)
                     {
                         auto const r = frameID;
                         auto const g = frameID + y;
@@ -281,23 +277,21 @@ namespace
       public:
         SgrFgBgColoredText() noexcept: Test("sgr_fg_bg_lines", "") {}
 
-        unsigned short width = 80;
-        unsigned short height = 24;
+        TerminalSize terminalSize;
 
-        void setup(unsigned short _width, unsigned short _height) noexcept override
+        void setup(TerminalSize size) noexcept override
         {
-            width = _width;
-            height = _height;
+            terminalSize = size;
         }
 
         void run(Buffer& _sink) noexcept override
         {
             for (unsigned frameID = 0; _sink.good(); ++frameID)
             {
-                for (u16 y = 0; y < height; ++y)
+                for (u16 y = 0; y < terminalSize.lines; ++y)
                 {
                     moveCursor(_sink, 1, y + 1u);
-                    for (u16 x = 0; x < width; ++x)
+                    for (u16 x = 0; x < terminalSize.columns; ++x)
                     {
                         auto r = static_cast<uint8_t>(frameID);
                         auto g = static_cast<uint8_t>(frameID + y);
@@ -321,7 +315,7 @@ namespace
       public:
         Binary() noexcept: Test("binary", "") {}
 
-        void setup(unsigned short, unsigned short) override
+        void setup(TerminalSize) override
         {
             text.resize(4 * 1024 * 1024);
             for (auto i = text.data(), e = i + text.size(); i != e; ++i)
@@ -352,7 +346,7 @@ namespace
     {
       public:
         Line(std::string name, std::string text): Test(name, ""), text { text } {}
-        void setup(unsigned short, unsigned short) override {}
+        void setup(TerminalSize) override {}
 
         void run(Buffer& _sink) noexcept override
         {
