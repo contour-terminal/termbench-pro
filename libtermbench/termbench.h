@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-namespace contour::termbench
+namespace termbench
 {
 
 struct TerminalSize
@@ -118,10 +118,10 @@ class Benchmark
     std::vector<Result> results_;
 };
 
-} // namespace contour::termbench
+} // namespace termbench
 
 // Holds a set of pre-defined terminal benchmark tests.
-namespace contour::termbench::tests
+namespace termbench::tests
 {
 std::unique_ptr<Test> many_lines();
 std::unique_ptr<Test> long_lines();
@@ -131,4 +131,4 @@ std::unique_ptr<Test> binary();
 std::unique_ptr<Test> ascii_line(size_t);
 std::unique_ptr<Test> sgr_line(size_t);
 std::unique_ptr<Test> sgrbg_line(size_t);
-} // namespace contour::termbench::tests
+} // namespace termbench::tests

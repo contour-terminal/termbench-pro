@@ -23,7 +23,7 @@
 using namespace std::chrono;
 using namespace std::string_view_literals;
 
-namespace contour::termbench
+namespace termbench
 {
 
 namespace
@@ -132,9 +132,9 @@ void Benchmark::summarize(std::ostream& os)
     os << std::format("   data size: {}\n", sizeStr(static_cast<double>(testSizeMB_ * 1024 * 1024)));
 }
 
-} // namespace contour::termbench
+} // namespace termbench
 
-namespace contour::termbench::tests
+namespace termbench::tests
 {
 
 namespace
@@ -246,10 +246,7 @@ namespace
 
         TerminalSize terminalSize;
 
-        void setup(TerminalSize size) noexcept override
-        {
-            terminalSize = size;
-        }
+        void setup(TerminalSize size) noexcept override { terminalSize = size; }
 
         void run(Buffer& _sink) noexcept override
         {
@@ -279,10 +276,7 @@ namespace
 
         TerminalSize terminalSize;
 
-        void setup(TerminalSize size) noexcept override
-        {
-            terminalSize = size;
-        }
+        void setup(TerminalSize size) noexcept override { terminalSize = size; }
 
         void run(Buffer& _sink) noexcept override
         {
@@ -416,4 +410,4 @@ std::unique_ptr<Test> sgrbg_line(size_t N)
     return std::make_unique<Line>(name, text);
 }
 
-} // namespace contour::termbench::tests
+} // namespace termbench::tests

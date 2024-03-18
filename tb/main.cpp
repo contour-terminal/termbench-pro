@@ -39,7 +39,7 @@ using namespace std::placeholders;
 
 #define STDOUT_FASTPATH_FD 3
 
-using contour::termbench::TerminalSize;
+using termbench::TerminalSize;
 
 namespace
 {
@@ -162,23 +162,23 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
     return settings;
 }
 
-void addTestsToBenchmark(contour::termbench::Benchmark& tb, BenchSettings const& settings)
+void addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings)
 {
-    tb.add(contour::termbench::tests::many_lines());
-    tb.add(contour::termbench::tests::long_lines());
-    tb.add(contour::termbench::tests::sgr_fg_lines());
-    tb.add(contour::termbench::tests::sgr_fgbg_lines());
-    tb.add(contour::termbench::tests::binary());
+    tb.add(termbench::tests::many_lines());
+    tb.add(termbench::tests::long_lines());
+    tb.add(termbench::tests::sgr_fg_lines());
+    tb.add(termbench::tests::sgr_fgbg_lines());
+    tb.add(termbench::tests::binary());
 
     if (settings.columnByColumn)
     {
         auto const maxColumns { settings.requestedTerminalSize.columns * 2u };
         for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(contour::termbench::tests::ascii_line(i));
+            tb.add(termbench::tests::ascii_line(i));
         for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(contour::termbench::tests::sgr_line(i));
+            tb.add(termbench::tests::sgr_line(i));
         for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(contour::termbench::tests::sgrbg_line(i));
+            tb.add(termbench::tests::sgrbg_line(i));
     }
 }
 
@@ -229,9 +229,9 @@ int main(int argc, char const* argv[])
                         : settings.stdoutFastPath ? chunkedWriteToStdout<STDOUT_FASTPATH_FD>
                                                   : chunkedWriteToStdout<STDOUT_FILENO>;
 
-    contour::termbench::Benchmark tb { writer,
-                                       settings.testSizeMB, // MB per test
-                                       settings.requestedTerminalSize };
+    termbench::Benchmark tb { writer,
+                              settings.testSizeMB, // MB per test
+                              settings.requestedTerminalSize };
 
     addTestsToBenchmark(tb, settings);
 
