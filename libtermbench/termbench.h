@@ -77,7 +77,7 @@ struct Test
     }
 
     virtual void setup(TerminalSize /*terminalSize*/) {}
-    virtual void run(Buffer& /*stdoutBuffer*/) noexcept = 0;
+    virtual void fill(Buffer& /*stdoutBuffer*/) noexcept = 0;
     virtual void teardown(Buffer& /*stdoutBuffer*/) {}
 };
 
