@@ -110,8 +110,7 @@ jobs:
       with:
         name: benchmark_results
         path: |
-          results_full.png
-          results_ascii.png
+          *.png
           contour_results
           alacritty_results
           xterm_results
