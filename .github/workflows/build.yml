@@ -105,13 +105,12 @@ jobs:
       uses: julia-actions/setup-julia@v1
     - name: "Create Plots"
       run: julia ./scripts/plot_results.jl
+    - name: "Give result files a .txt file extension"
+      run: for file in *_results; do mv -v $file $file.txt; done
     - name: "Upload results and plot"
       uses: actions/upload-artifact@v3
       with:
         name: benchmark_results
         path: |
           *.png
-          contour_results
-          alacritty_results
-          xterm_results
-          kitty_results
+          *_results.txt
