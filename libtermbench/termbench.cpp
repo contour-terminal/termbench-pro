@@ -58,6 +58,18 @@ void Benchmark::add(std::unique_ptr<Test> _test)
     tests_.emplace_back(std::move(_test));
 }
 
+void Benchmark::updateWindowTitle(std::string_view _title)
+{
+    auto const now = steady_clock::now();
+    if (now - lastWindowTitleUpdate_ < 100ms)
+        return;
+
+    lastWindowTitleUpdate_ = now;
+    std::cout << std::format("\033]2;{}\033\\", _title);
+    std::cout.flush();
+}
+
+
 void Benchmark::writeOutput(Buffer const& testBuffer)
 {
     auto const output = testBuffer.output();
@@ -80,7 +92,16 @@ void Benchmark::runAll()
             beforeTest_(*test);
 
         test->setup(terminalSize_);
-        test->run(*buffer);
+
+        while (buffer->good())
+        {
+            test->fill(*buffer);
+
+            updateWindowTitle(std::format("{}: filling buffer {:.3}%",
+                                          test->name,
+                                          static_cast<double>(buffer->size())
+                                              / static_cast<double>(1024 * 1024 * testSizeMB_)));
+        }
 
         auto const beginTime = steady_clock::now();
         writeOutput(*buffer);
@@ -197,6 +218,20 @@ namespace
         writeChar(_sink, 'm');
     }
 
+    class CraftedTest: public Test
+    {
+      public:
+        explicit CraftedTest(std::string name, std::string description, std::string text) noexcept:
+            Test(std::move(name), std::move(description)), _text { std::move(text) }
+        {
+        }
+
+        void fill(Buffer& _sink) noexcept override { _sink.write(_text); }
+
+      private:
+        std::string _text;
+    };
+
     class ManyLines: public Test
     {
       public:
@@ -215,11 +250,7 @@ namespace
             }
         }
 
-        void run(Buffer& _sink) noexcept override
-        {
-            while (_sink.good())
-                _sink.write(text);
-        }
+        void fill(Buffer& _sink) noexcept override { _sink.write(text); }
 
       private:
         std::string text;
@@ -230,13 +261,7 @@ namespace
       public:
         LongLines() noexcept: Test("long_lines", "") {}
 
-        void run(Buffer& _sink) noexcept override
-        {
-            while (_sink.good())
-            {
-                writeChar(_sink, randomAsciiChar());
-            }
-        }
+        void fill(Buffer& _sink) noexcept override { writeChar(_sink, randomAsciiChar()); }
     };
 
     class SgrFgColoredText: public Test
@@ -245,25 +270,24 @@ namespace
         SgrFgColoredText() noexcept: Test("sgr_fg_lines", "") {}
 
         TerminalSize terminalSize;
+        unsigned frameID = 0;
 
         void setup(TerminalSize size) noexcept override { terminalSize = size; }
 
-        void run(Buffer& _sink) noexcept override
+        void fill(Buffer& _sink) noexcept override
         {
-            for (unsigned frameID = 0; _sink.good(); ++frameID)
+            ++frameID;
+            for (u16 y = 0; y < terminalSize.lines; ++y)
             {
-                for (u16 y = 0; y < terminalSize.lines; ++y)
+                moveCursor(_sink, 1, y + 1u);
+                for (u16 x = 0; x < terminalSize.columns; ++x)
                 {
-                    moveCursor(_sink, 1, y + 1u);
-                    for (u16 x = 0; x < terminalSize.columns; ++x)
-                    {
-                        auto const r = frameID;
-                        auto const g = frameID + y;
-                        auto const b = frameID + y + x;
+                    auto const r = frameID;
+                    auto const g = frameID + y;
+                    auto const b = frameID + y + x;
 
-                        setTextColor(_sink, r & 0xff, g & 0xff, b & 0xff);
-                        writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
-                    }
+                    setTextColor(_sink, r & 0xff, g & 0xff, b & 0xff);
+                    writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
                 }
             }
         }
@@ -275,30 +299,28 @@ namespace
         SgrFgBgColoredText() noexcept: Test("sgr_fg_bg_lines", "") {}
 
         TerminalSize terminalSize;
+        unsigned frameID = 0;
 
         void setup(TerminalSize size) noexcept override { terminalSize = size; }
 
-        void run(Buffer& _sink) noexcept override
+        void fill(Buffer& _sink) noexcept override
         {
-            for (unsigned frameID = 0; _sink.good(); ++frameID)
+            for (u16 y = 0; y < terminalSize.lines; ++y)
             {
-                for (u16 y = 0; y < terminalSize.lines; ++y)
+                moveCursor(_sink, 1, y + 1u);
+                for (u16 x = 0; x < terminalSize.columns; ++x)
                 {
-                    moveCursor(_sink, 1, y + 1u);
-                    for (u16 x = 0; x < terminalSize.columns; ++x)
-                    {
-                        auto r = static_cast<uint8_t>(frameID);
-                        auto g = static_cast<uint8_t>(frameID + y);
-                        auto b = static_cast<uint8_t>(frameID + y + x);
-                        setTextColor(_sink, r, g, b);
+                    auto r = static_cast<uint8_t>(frameID);
+                    auto g = static_cast<uint8_t>(frameID + y);
+                    auto b = static_cast<uint8_t>(frameID + y + x);
+                    setTextColor(_sink, r, g, b);
 
-                        r = static_cast<uint8_t>(frameID + y + x);
-                        g = static_cast<uint8_t>(frameID + y);
-                        b = static_cast<uint8_t>(frameID);
-                        setBackgroundColor(_sink, r, g, b);
+                    r = static_cast<uint8_t>(frameID + y + x);
+                    g = static_cast<uint8_t>(frameID + y);
+                    b = static_cast<uint8_t>(frameID);
+                    setBackgroundColor(_sink, r, g, b);
 
-                        writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
-                    }
+                    writeChar(_sink, static_cast<char>('a' + (frameID + x + y) % ('z' - 'a')));
                 }
             }
         }
@@ -322,13 +344,7 @@ namespace
             }
         }
 
-        void run(Buffer& _sink) noexcept override
-        {
-            while (_sink.good())
-            {
-                _sink.write(text);
-            }
-        }
+        void fill(Buffer& _sink) noexcept override { _sink.write(text); }
 
         void teardown(Buffer& _sink) noexcept override { _sink.write("\033c"); }
 
@@ -342,14 +358,7 @@ namespace
         Line(std::string name, std::string text): Test(name, ""), text { text } {}
         void setup(TerminalSize) override {}
 
-        void run(Buffer& _sink) noexcept override
-        {
-            for (size_t i = 0; i < 1000; ++i)
-            {
-                while (_sink.good())
-                    _sink.write(text);
-            }
-        }
+        void fill(Buffer& _sink) noexcept override { _sink.write(text); }
 
       private:
         std::string text;
@@ -408,6 +417,11 @@ std::unique_ptr<Test> sgrbg_line(size_t N)
     text += std::string { "\033[38;2;255;255;255m\033[48;2;0;0;0m" };
     text += std::string { "\n" };
     return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> crafted(std::string name, std::string description, std::string text)
+{
+    return std::make_unique<CraftedTest>(std::move(name), std::move(description), std::move(text));
 }
 
 } // namespace termbench::tests
