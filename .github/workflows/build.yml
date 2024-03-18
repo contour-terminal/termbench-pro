@@ -73,7 +73,7 @@ jobs:
       run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++-13"
     - name: "build"
       run: cmake --build --preset "$CMAKE_PRESET" --preset -- -j3
-    - name: "install dependencies"
+    - name: "install dependencies for running benchmarks"
       run: ./scripts/xvfb-deps.sh
     - name: "Install contour"
       run: |
