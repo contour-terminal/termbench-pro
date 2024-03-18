@@ -198,7 +198,7 @@ int main(int argc, char const* argv[])
 
     if (requestedTerminalSize != initialTerminalSize)
     {
-        cout << std::format("\033[8;{};{};t", requestedTerminalSize.lines, requestedTerminalSize.columns);
+        cout << std::format("\033[8;{};{}t", requestedTerminalSize.lines, requestedTerminalSize.columns);
         cout.flush();
     }
 
