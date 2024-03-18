@@ -36,32 +36,26 @@ struct TerminalSize
 struct Buffer
 {
   public:
-    explicit Buffer(size_t _maxWriteSizeMB) noexcept: maxWriteSize { _maxWriteSizeMB * 1024 * 1024 } {}
+    explicit Buffer(size_t _maxWriteSizeMB) noexcept: _maxSize { _maxWriteSizeMB * 1024 * 1024 } {}
 
-    bool good() const noexcept { return nwritten < maxWriteSize; }
+    bool good() const noexcept { return _data.size() < _maxSize; }
 
-    void write(std::string_view _data) noexcept
+    bool write(std::string_view chunk) noexcept
     {
-        auto const n = nwritten + _data.size() < maxWriteSize ? _data.size() : maxWriteSize - nwritten;
-        auto i = _data.data();
-        auto p = data.data() + nwritten;
-        auto e = data.data() + nwritten + n;
-        while (p != e)
-            *p++ = *i++;
-        // std::memcpy(data.data() + nwritten, _data.data(), n);
-        nwritten += n;
+        if (_data.size() > _maxSize)
+            return false;
+        _data.append(chunk.data(), chunk.size());
+        return true;
     }
 
-    std::string_view output() const noexcept { return std::string_view { data.data(), nwritten }; }
+    std::string_view output() const noexcept { return std::string_view { _data.data(), _data.size() }; }
 
-    void clear() noexcept { nwritten = 0; }
-    bool empty() const noexcept { return nwritten == 0; }
+    void clear() noexcept { _data.clear(); }
+    bool empty() const noexcept { return _data.empty(); }
 
   private:
-    size_t maxWriteSize = 4 * 1024 * 1024;
-
-    std::array<char, 64 * 1024 * 1024> data {};
-    size_t nwritten = 0;
+    std::string _data;
+    std::size_t _maxSize;
 };
 
 /// Describes a single test.
