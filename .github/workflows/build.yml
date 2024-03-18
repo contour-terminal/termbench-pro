@@ -21,6 +21,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
+  CONTOUR_VERSION: "0.4.3.6442"
 
 jobs:
 
@@ -46,8 +47,10 @@ jobs:
   ubuntu_linux:
     name: "Ubuntu Linux 22.04"
     runs-on: ubuntu-22.04
+    env:
+      CMAKE_PRESET: "linux-gcc-release"
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1
       with:
@@ -62,19 +65,20 @@ jobs:
       run: |
         set -ex
         sudo apt -q update
+        sudo apt install -qy ninja-build
         sudo ./scripts/install-deps.sh
     - name: "Install GCC 13"
       run: sudo apt install g++-13
     - name: "cmake"
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE="RelWithDebInfo" -D CMAKE_CXX_COMPILER="g++-13"
+      run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++-13"
     - name: "build"
-      run: cmake --build build/ -- -j3
-    - name: "install dependencies"
+      run: cmake --build --preset "$CMAKE_PRESET" --preset -- -j3
+    - name: "install dependencies for running benchmarks"
       run: ./scripts/xvfb-deps.sh
     - name: "Install contour"
       run: |
-        wget https://github.com/contour-terminal/contour/releases/download/v0.4.3.6442/contour-0.4.3.6442-ubuntu22.04-amd64.deb
-        sudo dpkg -i contour-0.4.3.6442-ubuntu22.04-amd64.deb
+        wget https://github.com/contour-terminal/contour/releases/download/v$CONTOUR_VERSION/contour-$CONTOUR_VERSION-ubuntu22.04-amd64.deb
+        sudo dpkg -i contour-$CONTOUR_VERSION-ubuntu22.04-amd64.deb
     - name: "create and patch contour.yml config file"
       run: |
         set -ex
@@ -90,7 +94,7 @@ jobs:
     - name: "Install kitty and xterm"
       run: sudo apt install -y kitty xterm xvfb
     - name: "run benchmarks"
-      run: ./scripts/Xvfb-bench-run.sh ./build/tb/tb
+      run: ./scripts/Xvfb-bench-run.sh "./build/$CMAKE_PRESET/tb/tb"
     - name: "ls"
       run: ls -la
     - name: "cat contour_results"
@@ -105,14 +109,12 @@ jobs:
       uses: julia-actions/setup-julia@v1
     - name: "Create Plots"
       run: julia ./scripts/plot_results.jl
+    - name: "Give result files a .txt file extension"
+      run: for file in *_results; do mv -v $file $file.txt; done
     - name: "Upload results and plot"
       uses: actions/upload-artifact@v3
       with:
         name: benchmark_results
         path: |
-          results_full.png
-          results_ascii.png
-          contour_results
-          alacritty_results
-          xterm_results
-          kitty_results
+          *.png
+          *_results.txt

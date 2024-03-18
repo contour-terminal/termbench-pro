@@ -22,8 +22,16 @@
 #include <string_view>
 #include <vector>
 
-namespace contour::termbench
+namespace termbench
 {
+
+struct TerminalSize
+{
+    unsigned short columns = 0;
+    unsigned short lines = 0;
+
+    constexpr auto operator<=>(TerminalSize const&) const noexcept = default;
+};
 
 struct Buffer
 {
@@ -68,9 +76,9 @@ struct Test
     {
     }
 
-    virtual void setup(unsigned short, unsigned short) {}
-    virtual void run(Buffer&) noexcept = 0;
-    virtual void teardown(Buffer&) {}
+    virtual void setup(TerminalSize /*terminalSize*/) {}
+    virtual void run(Buffer& /*stdoutBuffer*/) noexcept = 0;
+    virtual void teardown(Buffer& /*stdoutBuffer*/) {}
 };
 
 struct Result
@@ -85,8 +93,7 @@ class Benchmark
   public:
     Benchmark(std::function<void(char const*, size_t n)> _writer,
               size_t _testSizeMB,
-              unsigned short _width,
-              unsigned short _height,
+              TerminalSize terminalSize,
               std::function<void(Test const&)> _beforeTest = {});
 
     void add(std::unique_ptr<Test> _test);
@@ -105,17 +112,16 @@ class Benchmark
     std::function<void(char const*, size_t)> writer_;
     std::function<void(Test const&)> beforeTest_;
     size_t testSizeMB_;
-    unsigned short width_;
-    unsigned short height_;
+    TerminalSize terminalSize_;
 
     std::vector<std::unique_ptr<Test>> tests_;
     std::vector<Result> results_;
 };
 
-} // namespace contour::termbench
+} // namespace termbench
 
 // Holds a set of pre-defined terminal benchmark tests.
-namespace contour::termbench::tests
+namespace termbench::tests
 {
 std::unique_ptr<Test> many_lines();
 std::unique_ptr<Test> long_lines();
@@ -125,4 +131,4 @@ std::unique_ptr<Test> binary();
 std::unique_ptr<Test> ascii_line(size_t);
 std::unique_ptr<Test> sgr_line(size_t);
 std::unique_ptr<Test> sgrbg_line(size_t);
-} // namespace contour::termbench::tests
+} // namespace termbench::tests
