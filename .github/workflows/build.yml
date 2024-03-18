@@ -50,7 +50,7 @@ jobs:
     env:
       CMAKE_PRESET: "linux-gcc-release"
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1
       with:
