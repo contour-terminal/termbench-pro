@@ -94,14 +94,7 @@ void Benchmark::runAll()
         test->setup(terminalSize_);
 
         while (buffer->good())
-        {
             test->fill(*buffer);
-
-            updateWindowTitle(std::format("{}: filling buffer {:.3}%",
-                                          test->name,
-                                          static_cast<double>(buffer->size())
-                                              / static_cast<double>(1024 * 1024 * testSizeMB_)));
-        }
 
         auto const beginTime = steady_clock::now();
         writeOutput(*buffer);
