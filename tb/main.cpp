@@ -69,31 +69,32 @@ void chunkedWriteToStdout(char const* _data, size_t _size)
 {
     auto constexpr PageSize = 4096; // 8192;
 
-#if defined(_WIN32)
-    HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD nwritten {};
-#endif
-
+#if !defined(_WIN32)
     while (_size >= PageSize)
     {
-#if !defined(_WIN32)
         auto const n = write(StdoutFileNo, _data, PageSize);
         if (n < 0)
             perror("write");
-        _data += n;
-        _size -= static_cast<size_t>(n);
-#else
-        WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
-#endif
+        else
+        {
+            _data += n;
+            _size -= static_cast<size_t>(n);
+        }
     }
-
-#if !defined(_WIN32)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wunused-result"
     write(StdoutFileNo, _data, _size);
     #pragma GCC diagnostic pop
 #else
-    WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+    HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD nwritten {};
+    while (_size >= PageSize)
+    {
+        WriteFile(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+        _data += nwritten;
+        _size -= static_cast<size_t>(nwritten);
+    }
+    WriteFile(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
 #endif
 }
 
