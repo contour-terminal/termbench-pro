@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "termbench.h"
+#include <termbench/termbench.h>
 
 #include <cstdlib>
 #include <format>
