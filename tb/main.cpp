@@ -38,6 +38,10 @@ using namespace std::placeholders;
     #include <Windows.h>
 #endif
 
+#ifndef STDOUT_FILENO
+    #define STDOUT_FILENO 1
+#endif
+
 #define STDOUT_FASTPATH_FD 3
 
 using termbench::TerminalSize;
@@ -55,8 +59,15 @@ TerminalSize getTerminalSize() noexcept
         return DefaultSize;
     return { ws.ws_col, ws.ws_row };
 #else
-    // TODO: Windows
-    return DefaultSize;
+    CONSOLE_SCREEN_BUFFER_INFOEX info {
+        .cbSize = sizeof(info),
+    };
+    if (!GetConsoleScreenBufferInfoEx(GetStdHandle(STD_OUTPUT_HANDLE), &info))
+        return DefaultSize;
+    return {
+        static_cast<unsigned short>(info.srWindow.Right - info.srWindow.Left + 1),
+        static_cast<unsigned short>(info.srWindow.Bottom - info.srWindow.Top + 1),
+    };
 #endif
 }
 
@@ -69,31 +80,32 @@ void chunkedWriteToStdout(char const* _data, size_t _size)
 {
     auto constexpr PageSize = 4096; // 8192;
 
-#if defined(_WIN32)
-    HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD nwritten {};
-#endif
-
+#if !defined(_WIN32)
     while (_size >= PageSize)
     {
-#if !defined(_WIN32)
         auto const n = write(StdoutFileNo, _data, PageSize);
         if (n < 0)
             perror("write");
-        _data += n;
-        _size -= static_cast<size_t>(n);
-#else
-        WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
-#endif
+        else
+        {
+            _data += n;
+            _size -= static_cast<size_t>(n);
+        }
     }
-
-#if !defined(_WIN32)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wunused-result"
     write(StdoutFileNo, _data, _size);
     #pragma GCC diagnostic pop
 #else
-    WriteConsoleA(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+    HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD nwritten {};
+    while (_size >= PageSize)
+    {
+        WriteFile(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
+        _data += nwritten;
+        _size -= static_cast<size_t>(nwritten);
+    }
+    WriteFile(stdoutHandle, _data, static_cast<DWORD>(_size), &nwritten, nullptr);
 #endif
 }
 
@@ -204,7 +216,7 @@ bool addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings
             cerr << std::format("Failed to load file '{}'.\n", test.string());
             return false;
         }
-        tb.add(termbench::tests::crafted(test.filename(), "", std::move(content)));
+        tb.add(termbench::tests::crafted(test.filename().string(), "", std::move(content)));
     }
 
     if (settings.columnByColumn)
@@ -253,11 +265,15 @@ struct WithScopedTerminalSize
 int main(int argc, char const* argv[])
 {
 #if defined(_WIN32)
-    {
-        HANDLE stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetConsoleMode(stdoutHandle, ENABLE_VIRTUAL_TERMINAL_PROCESSING);
-    }
+    const auto stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    const auto stdoutCP = GetConsoleOutputCP();
+    DWORD stdoutMode;
+    GetConsoleMode(stdoutHandle, &stdoutMode);
+    SetConsoleMode(stdoutHandle,
+                   ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    SetConsoleOutputCP(CP_UTF8);
 #endif
+
     auto const initialTerminalSize = getTerminalSize();
     auto const settings = parseArguments(argc, argv, initialTerminalSize);
 
@@ -293,5 +309,9 @@ int main(int argc, char const* argv[])
         tb.summarize(writerToFile);
     }
 
+#if defined(_WIN32)
+    SetConsoleMode(stdoutHandle, stdoutMode);
+    SetConsoleOutputCP(stdoutCP);
+#endif
     return EXIT_SUCCESS;
 }
