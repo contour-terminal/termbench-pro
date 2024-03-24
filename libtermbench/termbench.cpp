@@ -26,6 +26,12 @@ using namespace std::string_view_literals;
 namespace termbench
 {
 
+#if defined(_MSC_VER)
+    #define leadingZeroBits(x) __lzcnt(v)
+#else
+    #define leadingZeroBits(x) __builtin_clz(v)
+#endif
+
 namespace
 {
     std::string sizeStr(double _value)
@@ -171,17 +177,44 @@ namespace
         _sink.write(std::string_view { &ch, 1 });
     }
 
-    void writeNumber(Buffer& _sink, unsigned _value)
+    void writeNumber(Buffer& _sink, unsigned v)
     {
-        unsigned remains = _value;
-        for (unsigned divisor = 1000000000; divisor != 0; divisor /= 10)
-        {
-            auto const digit = remains / divisor;
-            remains -= digit * divisor;
+        // This implements https://graphics.stanford.edu/~seander/bithacks.html#IntegerLog10 but with lzcnt
+        // for log2.
+        static constexpr uint32_t powers_of_10[] {
+            0, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
+        };
+        const auto t = (32 - leadingZeroBits(v | 1)) * 1233 >> 12;
+        const auto log10 = t - (v < powers_of_10[t]);
 
-            if (digit || (_value != remains) || (divisor == 1))
-                writeChar(_sink, static_cast<char>('0' + digit));
+        // Mapping 2 digits at a time speeds things up a lot because half the divisions are necessary.
+        // I got this idea from https://github.com/fmtlib/fmt which in turn got it
+        // from the talk "Three Optimization Tips for C++" by Andrei Alexandrescu.
+        static constexpr auto lut = "0001020304050607080910111213141516171819"
+                                    "2021222324252627282930313233343536373839"
+                                    "4041424344454647484950515253545556575859"
+                                    "6061626364656667686970717273747576777879"
+                                    "8081828384858687888990919293949596979899";
+
+        char buffer[16];
+        const auto digits = log10 + 1;
+        auto p = &buffer[digits];
+        auto r = digits;
+
+        while (r > 1)
+        {
+            const auto s = &lut[(v % 100) * 2];
+            *--p = s[1];
+            *--p = s[0];
+            v /= 100;
+            r -= 2;
         }
+        if (r & 1)
+        {
+            *--p = static_cast<char>('0' + v);
+        }
+
+        _sink.write({ &buffer[0], static_cast<size_t>(digits) });
     }
 
     void moveCursor(Buffer& _sink, unsigned x, unsigned y)
