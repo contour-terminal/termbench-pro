@@ -69,7 +69,6 @@ void Benchmark::updateWindowTitle(std::string_view _title)
     std::cout.flush();
 }
 
-
 void Benchmark::writeOutput(Buffer const& testBuffer)
 {
     auto const output = testBuffer.output();
@@ -154,11 +153,17 @@ namespace termbench::tests
 namespace
 {
 
-    static char randomAsciiChar()
+    static char randomAsciiChar() noexcept
     {
         auto constexpr Min = 'a'; // 0x20;
         auto constexpr Max = 'z'; // 0x7E;
-        return static_cast<char>(Min + rand() % (Max - Min + 1));
+
+        // Knuth's MMIX
+        static uint64_t state = 1442695040888963407;
+        const auto v = state * 6364136223846793005 + 1442695040888963407;
+        state = v;
+
+        return static_cast<char>(Min + v % (Max - Min + 1));
     }
 
     void writeChar(Buffer& _sink, char ch)
