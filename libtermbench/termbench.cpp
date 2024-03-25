@@ -421,32 +421,101 @@ std::unique_ptr<Test> binary()
     return std::make_unique<Binary>();
 }
 
-std::unique_ptr<Test> ascii_line(size_t N)
+std::unique_ptr<Test> ascii_line(size_t line_length)
 {
-    auto name = std::to_string(N) + " chars per line";
-    auto text = std::string(N, 'a') + std::string { "\n" };
+    auto name = std::to_string(line_length) + " chars per line";
+    auto text = std::string(line_length, 'a') + std::string { "\n" };
     return std::make_unique<Line>(name, text);
 }
 
-std::unique_ptr<Test> sgr_line(size_t N)
+std::unique_ptr<Test> sgr_line(size_t line_length)
 {
-    auto name = std::to_string(N) + " chars with sgr per line";
+    auto name = std::to_string(line_length) + " chars with sgr per line";
     std::string text {};
-    text += std::string { "\033[38;2;20;200;200m" };
-    text += std::string(N, 'a');
-    text += std::string { "\n" };
-    text += std::string { "\033[38;2;255;255;255m" };
+    text += "\033[38;2;20;200;200m";
+    text += std::string(line_length, 'a');
+    text += "\n";
+    text += "\033[38;2;255;255;255m";
     return std::make_unique<Line>(name, text);
 }
 
-std::unique_ptr<Test> sgrbg_line(size_t N)
+std::unique_ptr<Test> sgrbg_line(size_t line_length)
 {
-    auto name = std::to_string(N) + " chars with sgr and bg per line";
+    auto name = std::to_string(line_length) + " chars with sgr and bg per line";
     std::string text {};
-    text += std::string { "\033[38;2;20;200;200m\033[48;2;100;100;100m" };
-    text += std::string(N, 'a');
-    text += std::string { "\033[38;2;255;255;255m\033[48;2;0;0;0m" };
+    text += "\033[38;2;20;200;200m\033[48;2;100;100;100m";
+    text += std::string(line_length, 'a');
+    text += "\033[38;2;255;255;255m\033[48;2;0;0;0m";
+    text += "\n";
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_simple(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode simple";
+    std::string text {};
+    for (size_t i = 0; i < line_length; ++i)
+        text += "\u0061";
+    text += "\n";
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_two_codepoints(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode diacritic";
+    std::string text {};
+    for (size_t i = 0; i < line_length; ++i)
+        text += "\u0061\u0308";
+    text += "\n";
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_three_codepoints(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode double diacritic";
+    std::string text {};
+    for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
+        text += "\u0061\u035D\u0062";
+    text += "\n";
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_fire_as_text(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode fire as text";
+    std::string text {};
+    for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
+        text += std::string { "\U0001F525\U0000FE0E" };
     text += std::string { "\n" };
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_fire(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode fire";
+    std::string text {};
+    for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
+        text += std::string { "\U0001F525" };
+    text += std::string { "\n" };
+    return std::make_unique<Line>(name, text);
+}
+
+std::unique_ptr<Test> unicode_flag(size_t line_length)
+{
+    auto name = std::to_string(line_length) + " unicode flag";
+    std::string text {};
+    std::string flag {};
+    flag += "\U0001F3F4";
+    flag += "\U000E0067";
+    flag += "\U000E0062";
+    flag += "\U000E0065";
+    flag += "\U000E006E";
+    flag += "\U000E0067";
+    flag += "\U000E007F";
+
+    for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
+        text += flag;
+    text += "\n";
     return std::make_unique<Line>(name, text);
 }
 

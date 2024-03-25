@@ -39,7 +39,7 @@ jobs:
         sudo apt-get install clang-format-17
     - name: "Clang-format libtermbench"
       run: find ./libtermbench -name "*.cpp" -o -name "*.h" | xargs clang-format-17 --Werror --dry-run
-    - name: "Clang-format tb1"
+    - name: "Clang-format tb"
       run: find ./tb -name "*.cpp" -o -name "*.h" | xargs clang-format-17 --Werror --dry-run
     - name: "Check includes"
       run: ./scripts/check-includes.sh
@@ -93,18 +93,14 @@ jobs:
       run: cargo install alacritty
     - name: "Install kitty and xterm"
       run: sudo apt install -y kitty xterm xvfb
-    - name: "run benchmarks"
+    - name: "Install wezterm"
+      run: |
+        curl -fsSL https://apt.fury.io/wez/gpg.key | sudo gpg --yes --dearmor -o /usr/share/keyrings/wezterm-fury.gpg
+        echo 'deb [signed-by=/usr/share/keyrings/wezterm-fury.gpg] https://apt.fury.io/wez/ * *' | sudo tee /etc/apt/sources.list.d/wezterm.list
+        sudo apt update
+        sudo apt install wezterm
+    - name: "Run benchmarks"
       run: ./scripts/Xvfb-bench-run.sh "./build/$CMAKE_PRESET/tb/tb"
-    - name: "ls"
-      run: ls -la
-    - name: "cat contour_results"
-      run: cat contour_results
-    - name: "cat kitty_results"
-      run: cat kitty_results
-    - name: "cat xterm_results"
-      run: cat xterm_results
-    - name: "cat alacritty_results"
-      run: cat alacritty_results
     - name: "Set up Julia"
       uses: julia-actions/setup-julia@v1
     - name: "Create Plots"
