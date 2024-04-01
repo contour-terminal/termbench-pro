@@ -109,6 +109,16 @@ void chunkedWriteToStdout(char const* _data, size_t _size)
 #endif
 }
 
+struct TestsToRun
+{
+    bool manyLines { true };
+    bool longLines { true };
+    bool sgrLines { true };
+    bool sgrFgBgLines { true };
+    bool binary { true };
+    bool columnByColumn { false };
+};
+
 struct BenchSettings
 {
     TerminalSize requestedTerminalSize {};
@@ -116,9 +126,9 @@ struct BenchSettings
     bool nullSink = false;
     bool stdoutFastPath = false;
     std::vector<std::filesystem::path> craftedTests {};
-    bool columnByColumn = false;
     std::string fileout {};
     std::optional<int> earlyExitCode = std::nullopt;
+    TestsToRun tests {};
 };
 
 BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& initialTerminalSize)
@@ -133,7 +143,7 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
         }
         else if (argv[i] == "--fixed-size"sv)
         {
-            settings.requestedTerminalSize.columns = 200;
+            settings.requestedTerminalSize.columns = 100;
             settings.requestedTerminalSize.lines = 30;
         }
         else if (argv[i] == "--stdout-fastpath"sv)
@@ -148,7 +158,12 @@ BenchSettings parseArguments(int argc, char const* argv[], TerminalSize const& i
         else if (argv[i] == "--column-by-column"sv)
         {
             cout << std::format("Enabling column-by-column tests.\n");
-            settings.columnByColumn = true;
+            settings.tests.columnByColumn = true;
+            settings.tests.manyLines = false;
+            settings.tests.longLines = false;
+            settings.tests.sgrLines = false;
+            settings.tests.sgrFgBgLines = false;
+            settings.tests.binary = false;
         }
         else if (argv[i] == "--size"sv && i + 1 < argc)
         {
@@ -201,12 +216,17 @@ std::string loadFileContents(std::filesystem::path const& path)
 
 bool addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings)
 {
-    tb.add(termbench::tests::many_lines());
-    tb.add(termbench::tests::long_lines());
-    tb.add(termbench::tests::sgr_fg_lines());
-    tb.add(termbench::tests::sgr_fgbg_lines());
-    tb.add(termbench::tests::binary());
-    // TODO: The above tests should also be configurable via command line (-mlfgb).
+
+    if (settings.tests.manyLines)
+        tb.add(termbench::tests::many_lines());
+    if (settings.tests.longLines)
+        tb.add(termbench::tests::long_lines());
+    if (settings.tests.sgrLines)
+        tb.add(termbench::tests::sgr_fg_lines());
+    if (settings.tests.sgrFgBgLines)
+        tb.add(termbench::tests::sgr_fgbg_lines());
+    if (settings.tests.binary)
+        tb.add(termbench::tests::binary());
 
     for (auto const& test: settings.craftedTests)
     {
@@ -219,17 +239,25 @@ bool addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings
         tb.add(termbench::tests::crafted(test.filename().string(), "", std::move(content)));
     }
 
-    if (settings.columnByColumn)
+    if (settings.tests.columnByColumn)
     {
         auto const maxColumns { settings.requestedTerminalSize.columns * 2u };
-        for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(termbench::tests::ascii_line(i));
-        for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(termbench::tests::sgr_line(i));
-        for (size_t i = 0; i < maxColumns; ++i)
-            tb.add(termbench::tests::sgrbg_line(i));
-    }
 
+        auto add_test = [&](auto&& test) {
+            for (size_t i = 0; i < maxColumns; ++i)
+                tb.add(std::invoke(test, i));
+        };
+
+        add_test(termbench::tests::ascii_line);
+        add_test(termbench::tests::unicode_simple);
+        add_test(termbench::tests::unicode_two_codepoints);
+        add_test(termbench::tests::unicode_three_codepoints);
+        add_test(termbench::tests::unicode_fire_as_text);
+        add_test(termbench::tests::unicode_fire);
+        add_test(termbench::tests::unicode_flag);
+        add_test(termbench::tests::sgr_line);
+        add_test(termbench::tests::sgrbg_line);
+    }
     return true;
 }
 

@@ -8,6 +8,7 @@ CONTOUR_BIN="${CONTOUR_BIN:-contour}"
 KITTY_BIN="${KITTY_BIN:-kitty}"
 XTERM_BIN="${XTERM_BIN:-xterm}"
 ALACRITTY_BIN="${ALACRITTY_BIN:-alacritty}"
+WEZTERM_BIN="${WEZTERM_BIN:-wezterm}"
 FB_DISPLAY="${FB_DISPLAY:-:99}"
 
 OUTPUT_DIR="${PWD}"
@@ -31,6 +32,7 @@ require_bin "${CONTOUR_BIN}"
 require_bin "${KITTY_BIN}"
 require_bin "${XTERM_BIN}"
 require_bin "${ALACRITTY_BIN}"
+require_bin "${WEZTERM_BIN}"
 
 export TB_BIN=$(realpath $TB_BIN)
 export DISPLAY=${FB_DISPLAY}
@@ -47,12 +49,9 @@ function program_exit() {
 function bench_terminal() {
     printf "\033[1m==> Running terminal: $1\033[m\n"
     local terminal_name=$(basename $1)
-    time "${@}" -e "${TB_BIN}" --fixed-size --stdout-fastpath --column-by-column --output "${OUTPUT_DIR}/${terminal_name}_results"
+    time "${@}" -e "${TB_BIN}" --fixed-size --column-by-column --size 2 --output "${OUTPUT_DIR}/${terminal_name}_results"
     local exit_code=$?
     printf "\033[1m==> Terminal exit code: $exit_code\033[m\n"
-    if [[ $exit_code -ne 0 ]]; then
-        program_exit $exit_code
-    fi
 }
 
 set -x
@@ -67,5 +66,6 @@ bench_terminal "${CONTOUR_BIN}" display ${DISPLAY}
 bench_terminal "${KITTY_BIN}"
 bench_terminal "${XTERM_BIN}" -display ${DISPLAY}
 bench_terminal "${ALACRITTY_BIN}"
+bench_terminal "${WEZTERM_BIN}"
 
 program_exit 0

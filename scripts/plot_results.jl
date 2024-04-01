@@ -12,11 +12,23 @@ end
 
 function get_data(data, data_type)
     if data_type == :ascii
-        name = "chars per line"
+        name = "chars per line:"
     elseif data_type == :sgr
-        name = "chars with sgr per line"
+        name = "chars with sgr per line:"
     elseif data_type == :sgr_bg
-        name = "chars with sgr and bg per line"
+        name = "chars with sgr and bg per line:"
+    elseif data_type == :unicode
+        name = "unicode simple:"
+    elseif data_type == :diacritic
+        name = "unicode diacritic:"
+    elseif data_type == :diacritic_double
+        name = "unicode double diacritic:"
+    elseif data_type == :fire
+        name = "unicode fire:"
+    elseif data_type == :fire_text
+        name = "unicode fire as text:"
+    elseif data_type == :flag
+        name = "unicode flag:"
     end
 
     lines = []
@@ -38,7 +50,8 @@ end
 
 
 
-function generate_for_terminal(file_name)
+function generate_for_terminal(file_name, prefix="results_")
+    try
     terminal_name = split(file_name,"_")[1]
 
     fig = Figure()
@@ -47,21 +60,25 @@ function generate_for_terminal(file_name)
     data = split(open(io->read(io, String), file_name), '\n')
     terminal_name = split(file_name,"_")[1]
 
+    markers = [:circle :rect :cross :star4 :start5 :star6 :diamond]
+
     get_data_l = (type) -> get_data(data,type)
-    ascii_speed = get_data_l(:ascii)
-    sgr_speed = get_data_l(:sgr)
-    sgr_bg_speed = get_data_l(:sgr_bg)
+    speed = [ get_data_l(t) for t in types]
 
     marker_size = 8
-    scatter!(ax,ascii_speed, label= terminal_name * "_ascii", marker = :circle, markersize = marker_size)
-    scatter!(ax,sgr_speed, label=terminal_name*"_sgr", marker = :rect, markersize = marker_size)
-    scatter!(ax,sgr_bg_speed, label=terminal_name*"_sgr_and_bg", marker = :cross, markersize = marker_size)
+    for (ind,dat) in enumerate(speed)
+        scatter!(ax,dat, label= terminal_name * "_" * string(types[ind]), marker = markers[ind], markersize = marker_size)
+    end
     axislegend(position = :rt)
 
-    save("results_"*terminal_name*".png", fig)
+    save(prefix*terminal_name*".png", fig)
+    catch e
+        println(e)
+    end
 end
 
 function generate_comparison(type)
+    try
     fig = Figure()
     ax = Axis(fig[1,1], title = "Comparison for "*string(type), xlabel = "Length of line", ylabel = "throughput, MB/s")
 
@@ -69,17 +86,27 @@ function generate_comparison(type)
     insert_from_data(ax,"alacritty_results",:rect, type)
     insert_from_data(ax,"xterm_results",:cross, type)
     insert_from_data(ax,"kitty_results",:utriangle, type)
+    insert_from_data(ax,"wezterm_results",:diamond, type)
     axislegend(position = :lt)
     return fig
+    catch e
+        println(e)
+    end
 end
 
-
+types =   [:ascii  :sgr  :sgr_bg ]
 generate_for_terminal("contour_results")
 generate_for_terminal("alacritty_results")
 generate_for_terminal("xterm_results")
 generate_for_terminal("kitty_results")
+generate_for_terminal("wezterm_results")
+types = [:unicode :fire :flag :diacritic :diacritic_double :fire_text]
+generate_for_terminal_l = (n) -> generate_for_terminal(n, "results_unicode_")
+generate_for_terminal_l("contour_results")
+generate_for_terminal_l("alacritty_results")
+generate_for_terminal_l("xterm_results")
+generate_for_terminal_l("kitty_results")
+generate_for_terminal_l("wezterm_results")
 
-
-save("comparison_ascii.png", generate_comparison(:ascii))
-save("comparison_sgr.png", generate_comparison(:sgr))
-save("comparison_sgr_bg.png", generate_comparison(:sgr_bg))
+types =   [:ascii :sgr :sgr_bg :unicode :fire :fire_text :flag :diacritic :diacritic_double]
+[ save("comparison_"*string(type)*".png", generate_comparison(type)) for type in types ]
