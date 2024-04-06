@@ -21,6 +21,8 @@
 #include <string_view>
 #include <vector>
 
+#include <glaze/glaze.hpp>
+
 namespace termbench
 {
 
@@ -95,6 +97,7 @@ class Benchmark
     void runAll();
 
     void summarize(std::ostream& os);
+    void summarizeToJson(std::ostream& os);
 
     std::vector<Result> const& results() const noexcept { return results_; }
 
@@ -114,7 +117,40 @@ class Benchmark
     std::vector<Result> results_;
 };
 
+inline std::string sizeStr(double _value)
+{
+    if ((long double) (_value) >= (1024ull * 1024ull * 1024ull)) // GB
+        return std::format("{:7.3f} GB", _value / 1024.0 / 1024.0 / 1024.0);
+    if (_value >= (1024 * 1024)) // MB
+        return std::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
+    if (_value >= 1024) // KB
+        return std::format("{:7.3f} KB", _value / 1024.0);
+    return std::format("{:7.3f} bytes", _value);
+}
+
 } // namespace termbench
+
+namespace glz
+{
+
+template <>
+struct meta<termbench::Result>
+{
+    using T = termbench::Result;
+    static constexpr auto value = glz::object(
+        "name",
+        [](T const& result) { return result.test.get().name; },
+        "bytes written",
+        &T::bytesWritten,
+        "time",
+        [](T const& result) { return result.time.count(); },
+        "MB/s",
+        [](T const& result) {
+            double bytesPerSecond = double(result.bytesWritten) / (double(result.time.count()) / 1000.0);
+            return bytesPerSecond / 1024.0 / 1024.0;
+        });
+};
+} // namespace glz
 
 // Holds a set of pre-defined terminal benchmark tests.
 namespace termbench::tests

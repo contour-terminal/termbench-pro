@@ -25,6 +25,7 @@ set_target_properties(termbench PROPERTIES
 
 target_include_directories(termbench PUBLIC $<BUILD_INTERFACE:${${PROJECT_NAME}_SOURCE_DIR}>
                                             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(termbench PUBLIC glaze::glaze)
 
 install(TARGETS termbench
         EXPORT termbench-targets
