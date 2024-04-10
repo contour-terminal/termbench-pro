@@ -334,7 +334,7 @@ int main(int argc, char const* argv[])
         cout << "Writing summary into " << settings.fileout << std::endl;
         std::ofstream writerToFile;
         writerToFile.open(settings.fileout);
-        tb.summarize(writerToFile);
+        tb.summarizeToJson(writerToFile);
     }
 
 #if defined(_WIN32)

@@ -1,6 +1,10 @@
 using Pkg
 Pkg.add("CairoMakie")
+Pkg.add("JSON")
 using CairoMakie
+using JSON
+
+
 
 function parse_line(line)
    if count("MB",line) > 0
@@ -10,41 +14,45 @@ function parse_line(line)
    end
 end
 
-function get_data(data, data_type)
+function get_data(file_name)
+    return JSON.parsefile(file_name)
+end
+
+function get_values(data, data_type)
     if data_type == :ascii
-        name = "chars per line:"
+        name = "chars per line"
     elseif data_type == :sgr
-        name = "chars with sgr per line:"
+        name = "chars with sgr per line"
     elseif data_type == :sgr_bg
-        name = "chars with sgr and bg per line:"
+        name = "chars with sgr and bg per line"
     elseif data_type == :unicode
-        name = "unicode simple:"
+        name = "unicode simple"
     elseif data_type == :diacritic
-        name = "unicode diacritic:"
+        name = "unicode diacritic"
     elseif data_type == :diacritic_double
-        name = "unicode double diacritic:"
+        name = "unicode double diacritic"
     elseif data_type == :fire
-        name = "unicode fire:"
+        name = "unicode fire"
     elseif data_type == :fire_text
-        name = "unicode fire as text:"
+        name = "unicode fire as text"
     elseif data_type == :flag
-        name = "unicode flag:"
+        name = "unicode flag"
     end
 
-    lines = []
+    lines = Vector{Float64}()
     for el in data
-        if occursin(name, el)
-            push!(lines, el)
+        if occursin(name, el["name"])
+            push!(lines, el["MB/s"])
         end
     end
-    return [ parse_line(val) for val in lines]
+    return lines
 end
 
 function insert_from_data(ax, file_name, marker_style, type)
-    data = split(open(io->read(io, String), file_name), '\n')
+    data = get_data(file_name)
     terminal_name = split(file_name,"_")[1]
 
-    data_speed = get_data(data,type)
+    data_speed = get_values(data,type)
     scatter!(ax, data_speed, label= terminal_name * "_ascii", marker = marker_style, markersize = 8)
 end
 
@@ -57,13 +65,12 @@ function generate_for_terminal(file_name, prefix="results_")
     fig = Figure()
     ax = Axis(fig[1,1], title = "Results for "*terminal_name ,xlabel = "Length of line", ylabel = "throughput, MB/s")
 
-    data = split(open(io->read(io, String), file_name), '\n')
-    terminal_name = split(file_name,"_")[1]
+    data = get_data(file_name)
 
     markers = [:circle :rect :cross :star4 :start5 :star6 :diamond]
 
-    get_data_l = (type) -> get_data(data,type)
-    speed = [ get_data_l(t) for t in types]
+    get_values_l = (type) -> get_values(data,type)
+    speed = [ get_values_l(t) for t in types]
 
     marker_size = 8
     for (ind,dat) in enumerate(speed)
@@ -93,6 +100,7 @@ function generate_comparison(type)
         println(e)
     end
 end
+
 
 types =   [:ascii  :sgr  :sgr_bg ]
 generate_for_terminal("contour_results")

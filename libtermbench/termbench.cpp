@@ -32,20 +32,6 @@ namespace termbench
     #define leadingZeroBits(x) __builtin_clz(v)
 #endif
 
-namespace
-{
-    std::string sizeStr(double _value)
-    {
-        if ((long double) (_value) >= (1024ull * 1024ull * 1024ull)) // GB
-            return std::format("{:7.3f} GB", _value / 1024.0 / 1024.0 / 1024.0);
-        if (_value >= (1024 * 1024)) // MB
-            return std::format("{:7.3f} MB", _value / 1024.0 / 1024.0);
-        if (_value >= 1024) // KB
-            return std::format("{:7.3f} KB", _value / 1024.0);
-        return std::format("{:7.3f} bytes", _value);
-    }
-} // namespace
-
 using u16 = unsigned short;
 
 Benchmark::Benchmark(std::function<void(char const*, size_t n)> _writer,
@@ -117,6 +103,13 @@ void Benchmark::runAll()
     }
 }
 //
+
+void Benchmark::summarizeToJson(std::ostream& os)
+{
+    std::string buffer = glz::write_json(results_);
+    os << buffer;
+}
+
 void Benchmark::summarize(std::ostream& os)
 {
     os << std::format("All {} tests finished.\n", results_.size());
