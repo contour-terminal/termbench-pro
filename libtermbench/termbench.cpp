@@ -106,8 +106,8 @@ void Benchmark::runAll()
 
 void Benchmark::summarizeToJson(std::ostream& os)
 {
-    std::string buffer = glz::write_json(results_);
-    os << buffer;
+    auto buffer = glz::write_json(results_);
+    os << buffer.value();
 }
 
 void Benchmark::summarize(std::ostream& os)
@@ -416,14 +416,14 @@ std::unique_ptr<Test> binary()
 
 std::unique_ptr<Test> ascii_line(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " chars per line";
+    auto name = std::to_string(line_length) + "_chars_per_line";
     auto text = std::string(line_length, 'a') + std::string { "\n" };
     return std::make_unique<Line>(name, text);
 }
 
 std::unique_ptr<Test> sgr_line(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " chars with sgr per line";
+    auto name = std::to_string(line_length) + "_chars_with_sgr_per_line";
     std::string text {};
     text += "\033[38;2;20;200;200m";
     text += std::string(line_length, 'a');
@@ -434,7 +434,7 @@ std::unique_ptr<Test> sgr_line(size_t line_length)
 
 std::unique_ptr<Test> sgrbg_line(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " chars with sgr and bg per line";
+    auto name = std::to_string(line_length) + "_chars_with_sgr_and_bg_per_line";
     std::string text {};
     text += "\033[38;2;20;200;200m\033[48;2;100;100;100m";
     text += std::string(line_length, 'a');
@@ -445,7 +445,7 @@ std::unique_ptr<Test> sgrbg_line(size_t line_length)
 
 std::unique_ptr<Test> unicode_simple(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " unicode simple";
+    auto name = std::to_string(line_length) + "_unicode_simple";
     std::string text {};
     for (size_t i = 0; i < line_length; ++i)
         text += "\u0061";
@@ -455,7 +455,7 @@ std::unique_ptr<Test> unicode_simple(size_t line_length)
 
 std::unique_ptr<Test> unicode_two_codepoints(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " unicode diacritic";
+    auto name = std::to_string(line_length) + "_unicode_diacritic";
     std::string text {};
     for (size_t i = 0; i < line_length; ++i)
         text += "\u0061\u0308";
@@ -465,7 +465,7 @@ std::unique_ptr<Test> unicode_two_codepoints(size_t line_length)
 
 std::unique_ptr<Test> unicode_three_codepoints(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " unicode double diacritic";
+    auto name = std::to_string(line_length) + "_unicode_double_diacritic";
     std::string text {};
     for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
         text += "\u0061\u035D\u0062";
@@ -473,19 +473,9 @@ std::unique_ptr<Test> unicode_three_codepoints(size_t line_length)
     return std::make_unique<Line>(name, text);
 }
 
-std::unique_ptr<Test> unicode_fire_as_text(size_t line_length)
-{
-    auto name = std::to_string(line_length) + " unicode fire as text";
-    std::string text {};
-    for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
-        text += std::string { "\U0001F525\U0000FE0E" };
-    text += std::string { "\n" };
-    return std::make_unique<Line>(name, text);
-}
-
 std::unique_ptr<Test> unicode_fire(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " unicode fire";
+    auto name = std::to_string(line_length) + "_unicode_fire";
     std::string text {};
     for (size_t i = 0; i < static_cast<size_t>(line_length / 2); ++i)
         text += std::string { "\U0001F525" };
@@ -493,9 +483,39 @@ std::unique_ptr<Test> unicode_fire(size_t line_length)
     return std::make_unique<Line>(name, text);
 }
 
+/* Creates rectangular block:
+ * u --- f
+ * |     |
+ * b --- d
+ * with each side being line_length long.
+ * */
+std::unique_ptr<Test> vt_movement(size_t line_length)
+{
+    auto name = std::to_string(line_length) + "_vt_movement";
+    std::string text {};
+    text += std::format("\033[{}Au\033[1D", line_length); // up
+    text += std::format("\033[{}Cf\033[1D", line_length); // forward
+    text += std::format("\033[{}Bd\033[1D", line_length); // down
+    text += std::format("\033[{}Db\033[1D", line_length); // backward
+    text += std::string { "\n" };
+    return std::make_unique<Line>(name, text);
+}
+
+/* Inserts lines and columns
+ */
+std::unique_ptr<Test> vt_insert(size_t line_length)
+{
+    auto name = std::to_string(line_length) + "_vt_insert";
+    std::string text {};
+    text += std::format("\033[{}L", line_length);        // insert lines IL
+    text += std::format("\033[{}{}", line_length, "'}"); // insert columns DECIC
+    text += std::string { "\n" };
+    return std::make_unique<Line>(name, text);
+}
+
 std::unique_ptr<Test> unicode_flag(size_t line_length)
 {
-    auto name = std::to_string(line_length) + " unicode flag";
+    auto name = std::to_string(line_length) + "_unicode_flag";
     std::string text {};
     std::string flag {};
     flag += "\U0001F3F4";

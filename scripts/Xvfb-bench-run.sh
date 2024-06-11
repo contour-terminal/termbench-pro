@@ -49,9 +49,12 @@ function program_exit() {
 function bench_terminal() {
     printf "\033[1m==> Running terminal: $1\033[m\n"
     local terminal_name=$(basename $1)
-    time "${@}" -e "${TB_BIN}" --fixed-size --column-by-column --size 2 --output "${OUTPUT_DIR}/${terminal_name}_results"
+    time "${@}" -e "${TB_BIN}" --fixed-size --column-by-column --size 1 --output "${OUTPUT_DIR}/${terminal_name}_results"
     local exit_code=$?
     printf "\033[1m==> Terminal exit code: $exit_code\033[m\n"
+    if [[ $exit_code -ne 0 ]]; then
+        program_exit $exit_code
+    fi
 }
 
 set -x

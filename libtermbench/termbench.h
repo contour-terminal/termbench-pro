@@ -164,10 +164,11 @@ std::unique_ptr<Test> ascii_line(size_t);
 std::unique_ptr<Test> sgr_line(size_t);
 std::unique_ptr<Test> sgrbg_line(size_t);
 std::unique_ptr<Test> unicode_simple(size_t);
+std::unique_ptr<Test> vt_movement(size_t);
+std::unique_ptr<Test> vt_insert(size_t);
 std::unique_ptr<Test> unicode_two_codepoints(size_t);
 std::unique_ptr<Test> unicode_three_codepoints(size_t);
 std::unique_ptr<Test> unicode_flag(size_t);
-std::unique_ptr<Test> unicode_fire_as_text(size_t); // U+FEOE
 std::unique_ptr<Test> unicode_fire(size_t);
 std::unique_ptr<Test> crafted(std::string name, std::string description, std::string text);
 } // namespace termbench::tests
