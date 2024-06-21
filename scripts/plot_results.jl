@@ -1,6 +1,7 @@
 using Pkg
 Pkg.add("CairoMakie")
 Pkg.add("JSON")
+Pkg.instantiate()
 using CairoMakie
 using JSON
 
@@ -20,23 +21,25 @@ end
 
 function get_values(data, data_type)
     if data_type == :ascii
-        name = "chars per line"
+        name = "chars_per_line"
     elseif data_type == :sgr
-        name = "chars with sgr per line"
+        name = "chars_with_sgr_per_line"
     elseif data_type == :sgr_bg
-        name = "chars with sgr and bg per line"
+        name = "chars_with_sgr_and_bg_per_line"
     elseif data_type == :unicode
-        name = "unicode simple"
+        name = "unicode_simple"
     elseif data_type == :diacritic
-        name = "unicode diacritic"
+        name = "unicode_diacritic"
     elseif data_type == :diacritic_double
-        name = "unicode double diacritic"
+        name = "unicode_double_diacritic"
     elseif data_type == :fire
-        name = "unicode fire"
-    elseif data_type == :fire_text
-        name = "unicode fire as text"
+        name = "unicode_fire"
+    elseif data_type == :vt_movement
+        name = "vt_movement"
+    elseif data_type == :vt_insert
+        name = "vt_insert"
     elseif data_type == :flag
-        name = "unicode flag"
+        name = "unicode_flag"
     end
 
     lines = Vector{Float64}()
@@ -67,14 +70,14 @@ function generate_for_terminal(file_name, prefix="results_")
 
     data = get_data(file_name)
 
-    markers = [:circle :rect :cross :star4 :start5 :star6 :diamond]
+    markers = [:circle :rect :cross :star4 :star5 :star6 :diamond]
 
     get_values_l = (type) -> get_values(data,type)
     speed = [ get_values_l(t) for t in types]
 
     marker_size = 8
     for (ind,dat) in enumerate(speed)
-        scatter!(ax,dat, label= terminal_name * "_" * string(types[ind]), marker = markers[ind], markersize = marker_size)
+        scatter!(ax, dat,label= terminal_name * "_" * string(types[ind]), marker = markers[ind], markersize = marker_size)
     end
     axislegend(position = :rt)
 
@@ -108,13 +111,21 @@ generate_for_terminal("alacritty_results")
 generate_for_terminal("xterm_results")
 generate_for_terminal("kitty_results")
 generate_for_terminal("wezterm_results")
-types = [:unicode :fire :flag :diacritic :diacritic_double :fire_text]
+types = [:unicode :fire :flag :diacritic :diacritic_double]
 generate_for_terminal_l = (n) -> generate_for_terminal(n, "results_unicode_")
 generate_for_terminal_l("contour_results")
 generate_for_terminal_l("alacritty_results")
 generate_for_terminal_l("xterm_results")
 generate_for_terminal_l("kitty_results")
 generate_for_terminal_l("wezterm_results")
+types = [:vt_movement :vt_insert]
+generate_for_terminal_l = (n) -> generate_for_terminal(n, "results_vt_")
+generate_for_terminal_l("contour_results")
+generate_for_terminal_l("alacritty_results")
+generate_for_terminal_l("xterm_results")
+generate_for_terminal_l("kitty_results")
+generate_for_terminal_l("wezterm_results")
 
-types =   [:ascii :sgr :sgr_bg :unicode :fire :fire_text :flag :diacritic :diacritic_double]
+
+types =   [:ascii :sgr :sgr_bg :unicode :fire :flag :diacritic :diacritic_double :vt_movement :vt_insert]
 [ save("comparison_"*string(type)*".png", generate_comparison(type)) for type in types ]

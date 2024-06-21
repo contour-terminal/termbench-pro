@@ -122,7 +122,7 @@ struct TestsToRun
 struct BenchSettings
 {
     TerminalSize requestedTerminalSize {};
-    size_t testSizeMB = 32;
+    size_t testSizeMB = 1;
     bool nullSink = false;
     bool stdoutFastPath = false;
     std::vector<std::filesystem::path> craftedTests {};
@@ -252,11 +252,12 @@ bool addTestsToBenchmark(termbench::Benchmark& tb, BenchSettings const& settings
         add_test(termbench::tests::unicode_simple);
         add_test(termbench::tests::unicode_two_codepoints);
         add_test(termbench::tests::unicode_three_codepoints);
-        add_test(termbench::tests::unicode_fire_as_text);
         add_test(termbench::tests::unicode_fire);
         add_test(termbench::tests::unicode_flag);
         add_test(termbench::tests::sgr_line);
         add_test(termbench::tests::sgrbg_line);
+        add_test(termbench::tests::vt_movement);
+        add_test(termbench::tests::vt_insert);
     }
     return true;
 }
