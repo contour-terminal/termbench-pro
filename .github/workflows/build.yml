@@ -67,10 +67,10 @@ jobs:
         sudo apt -q update
         sudo apt install -qy ninja-build
         sudo ./scripts/install-deps.sh
-    - name: "Install GCC 13"
-      run: sudo apt install g++-13
+    - name: "Install GCC 12"
+      run: sudo apt install g++-12
     - name: "cmake"
-      run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++-13"
+      run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++-12"
     - name: "build"
       run: cmake --build --preset "$CMAKE_PRESET" --preset -- -j3
     - name: "install dependencies for running benchmarks"
