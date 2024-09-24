@@ -18,7 +18,7 @@ include(FetchContent)
 FetchContent_Declare(
   glaze
   GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-  GIT_TAG main
+  GIT_TAG v3.4.2
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(glaze)
