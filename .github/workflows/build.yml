@@ -21,7 +21,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
-  CONTOUR_VERSION: "0.4.3.6442"
+  CONTOUR_VERSION: "0.5.0.7168"
 
 jobs:
 
@@ -78,7 +78,7 @@ jobs:
     - name: "Install contour"
       run: |
         wget https://github.com/contour-terminal/contour/releases/download/v$CONTOUR_VERSION/contour-$CONTOUR_VERSION-ubuntu24.04-amd64.deb
-        sudo dpkg -i contour-$CONTOUR_VERSION-ubuntu25.04-amd64.deb
+        sudo dpkg -i contour-$CONTOUR_VERSION-ubuntu24.04-amd64.deb
     - name: "create and patch contour.yml config file"
       run: |
         set -ex

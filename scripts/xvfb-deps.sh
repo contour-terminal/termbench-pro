@@ -36,6 +36,7 @@ packages="
             libunistring5 \
             \
             libfontconfig1 \
+            libfontconfig1-dev \
             libfreetype6 \
             libharfbuzz0b \
             \
@@ -60,7 +61,9 @@ packages="
             libutempter0 \
             libyaml-cpp0.8\
             \
-            cargo
+            cargo\
+	    pkg-config \
+	    librust-pkg-config-dev
 "
 
 sudo apt install -y $packages
