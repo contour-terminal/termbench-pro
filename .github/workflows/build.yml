@@ -21,7 +21,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
-  CONTOUR_VERSION: "0.4.3.6442"
+  CONTOUR_VERSION: "0.5.0.7168"
 
 jobs:
 
@@ -45,8 +45,8 @@ jobs:
       run: ./scripts/check-includes.sh
 
   ubuntu_linux:
-    name: "Ubuntu Linux 22.04"
-    runs-on: ubuntu-22.04
+    name: "Ubuntu Linux 24.04"
+    runs-on: ubuntu-24.04
     env:
       CMAKE_PRESET: "linux-gcc-release"
     steps:
@@ -54,7 +54,7 @@ jobs:
     - name: ccache
       uses: hendrikmuhs/ccache-action@v1
       with:
-        key: "ccache-ubuntu_2204"
+        key: "ccache-ubuntu_2404"
         max-size: 256M
     - name: set environment variables
       id: set_vars
@@ -67,18 +67,18 @@ jobs:
         sudo apt -q update
         sudo apt install -qy ninja-build
         sudo ./scripts/install-deps.sh
-    - name: "Install GCC 13"
-      run: sudo apt install g++-13
+    - name: "Install GCC"
+      run: sudo apt install g++
     - name: "cmake"
-      run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++-13"
+      run: cmake --preset "$CMAKE_PRESET" -D CMAKE_CXX_COMPILER="g++"
     - name: "build"
       run: cmake --build --preset "$CMAKE_PRESET" --preset -- -j3
     - name: "install dependencies for running benchmarks"
       run: ./scripts/xvfb-deps.sh
     - name: "Install contour"
       run: |
-        wget https://github.com/contour-terminal/contour/releases/download/v$CONTOUR_VERSION/contour-$CONTOUR_VERSION-ubuntu22.04-amd64.deb
-        sudo dpkg -i contour-$CONTOUR_VERSION-ubuntu22.04-amd64.deb
+        wget https://github.com/contour-terminal/contour/releases/download/v$CONTOUR_VERSION/contour-$CONTOUR_VERSION-ubuntu24.04-amd64.deb
+        sudo dpkg -i contour-$CONTOUR_VERSION-ubuntu24.04-amd64.deb
     - name: "create and patch contour.yml config file"
       run: |
         set -ex

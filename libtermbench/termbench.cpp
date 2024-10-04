@@ -106,7 +106,7 @@ void Benchmark::runAll()
 
 void Benchmark::summarizeToJson(std::ostream& os)
 {
-    std::string buffer = glz::write_json(results_);
+    std::string buffer = glz::write_json(results_).value_or("error");
     os << buffer;
 }
 

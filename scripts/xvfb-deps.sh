@@ -25,17 +25,18 @@ packages="
             xvfb \
             \
             ffmpeg \
-            libavcodec58 \
-            libavdevice58 \
-            libavformat58 \
-            libavutil56 \
+            libavcodec60 \
+            libavdevice60 \
+            libavformat60 \
+            libavutil58 \
             libdeflate0 \
             libncurses6 \
             libqrcodegen1 \
-            libswscale5 \
-            libunistring2 \
+            libswscale7 \
+            libunistring5 \
             \
             libfontconfig1 \
+            libfontconfig1-dev \
             libfreetype6 \
             libharfbuzz0b \
             \
@@ -58,9 +59,11 @@ packages="
             qtquickcontrols2-5-dev \
             \
             libutempter0 \
-            libyaml-cpp0.7\
+            libyaml-cpp0.8\
             \
-            cargo
+            cargo\
+	    pkg-config \
+	    librust-pkg-config-dev
 "
 
 sudo apt install -y $packages
