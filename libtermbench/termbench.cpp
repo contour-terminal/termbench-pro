@@ -27,9 +27,9 @@ namespace termbench
 {
 
 #if defined(_MSC_VER)
-    #define leadingZeroBits(x) __lzcnt(v)
+    #define leadingZeroBits(x) __lzcnt(x)
 #else
-    #define leadingZeroBits(x) __builtin_clz(v)
+    #define leadingZeroBits(x) __builtin_clz(x)
 #endif
 
 using u16 = unsigned short;
