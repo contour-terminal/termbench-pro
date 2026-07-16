@@ -14,7 +14,7 @@ message(STATUS "termbench library build mode: ${TERMBENCH_LIB_BUILD_MODE}")
 set(_PUBLIC_HEADERS termbench.h)
 add_library(termbench ${TERMBENCH_LIB_BUILD_MODE} termbench.cpp)
 add_library(termbench::termbench ALIAS termbench)
-target_compile_features(termbench PUBLIC cxx_std_20)
+target_compile_features(termbench PUBLIC cxx_std_23)
 set_target_properties(termbench PROPERTIES
     PUBLIC_HEADER "${_PUBLIC_HEADERS}"
 )

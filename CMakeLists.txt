@@ -4,7 +4,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 project(termbench VERSION "0.2.0" LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -26,6 +26,27 @@ FetchContent_MakeAvailable(glaze)
 set(MASTER_PROJECT OFF)
 if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
     set(MASTER_PROJECT ON)
+endif()
+
+# Unit tests (Catch2). Fetched BEFORE the pedantic warning flags below so the third-party
+# framework is not compiled under our -Werror wall (mirrors how glaze is handled above).
+option(TERMBENCH_TESTING "Build the termbench unit tests" ${MASTER_PROJECT})
+if(TERMBENCH_TESTING)
+    FetchContent_Declare(
+      Catch2
+      GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+      GIT_TAG v3.7.1
+      GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+    # Treat Catch2 as a system dependency so its macro expansions (e.g. __COUNTER__) are not
+    # judged by our -pedantic/-Werror wall in consuming test targets.
+    foreach(_catch2_target Catch2 Catch2WithMain)
+        if(TARGET ${_catch2_target})
+            set_target_properties(${_catch2_target} PROPERTIES SYSTEM ON)
+        endif()
+    endforeach()
+    enable_testing()
 endif()
 
 include(EnableCcache)

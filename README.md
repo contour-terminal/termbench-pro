@@ -26,4 +26,23 @@ from other projects that cannot use the C++ API.
 - [ ] erase lines/columns (`EL`, `ED`)
 - [ ] complex unicode LTR
 - [ ] complex unicode RTL
-- [ ] sixel image
+- [x] sixel image
+
+## Image protocol benchmark (`image-bench`)
+
+`image-bench` renders a full-screen animated plasma using a terminal image protocol and reports
+realtime throughput metrics (a HUD at the bottom, plus a summary at exit). It benchmarks multiple
+protocols behind a pluggable registry:
+
+- `sixel` — DCS, palette-indexed
+- `kitty` — Kitty graphics protocol (RGB, base64)
+- `iterm2` — iTerm2 inline images (OSC 1337, PNG + base64)
+
+Run it in an image-capable terminal and press `q` or `ESC` to quit:
+
+```sh
+image-bench --protocol sixel        # or: kitty, iterm2
+image-bench --help                  # all options (colors, size, fps cap, duration, …)
+```
+
+For scripted/non-interactive benchmarking, `--duration S` auto-exits after `S` seconds.
