@@ -381,9 +381,134 @@ TEST_CASE("kitty emits APC transmit framing", "[kitty]")
     std::string out;
     protocol.encode(out, img::Image { indices, 2, 2, palette });
 
-    CHECK(out.starts_with("\033_Ga=d\033\\"));       // previous image deleted first
-    CHECK(contains(out, "\033_Ga=T,f=24,s=2,v=2;")); // transmit + display control keys
+    CHECK(out.starts_with("\033_Ga=T,q=2,C=1,f=24,i=1,p=1,s=2,v=2;")); // transmit + display keys
     CHECK(out.ends_with("\033\\"));
+}
+
+TEST_CASE("kitty never blanks the screen before uploading a frame", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+    auto const image = img::Image { indices, 2, 2, palette };
+
+    kitty::KittyProtocol protocol;
+
+    // A frame that opened with a delete would leave the screen blank for the whole upload that
+    // follows, which the terminal renders as flicker. The first frame has nothing to delete at all.
+    std::string first;
+    protocol.encode(first, image);
+    CHECK_FALSE(contains(first, "a=d"));
+
+    // From the second frame on, the delete must trail the upload that replaces it on screen.
+    std::string second;
+    protocol.encode(second, image);
+    auto const deleteAt = second.find("\033_Ga=d");
+    REQUIRE(deleteAt != std::string::npos);
+    CHECK(deleteAt > second.rfind("\033_Ga=T")); // placement first, only then the old id goes
+    CHECK(second.ends_with("\033\\"));
+}
+
+TEST_CASE("kitty ping-pongs image ids across frames", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+    auto const image = img::Image { indices, 2, 2, palette };
+
+    kitty::KittyProtocol protocol;
+    auto const frame = [&] {
+        std::string out;
+        protocol.encode(out, image);
+        return out;
+    };
+
+    // Uploading into the id that is not on screen is what keeps the previous frame visible
+    // throughout the upload; the ids therefore have to alternate.
+    auto const first = frame();
+    CHECK(contains(first, ",i=1,p=1,"));
+
+    auto const second = frame();
+    CHECK(contains(second, ",i=2,p=1,"));
+    CHECK(contains(second, "\033_Ga=d,d=I,i=1,q=2\033\\")); // d=I also frees the old image data
+
+    auto const third = frame();
+    CHECK(contains(third, ",i=1,p=1,"));
+    CHECK(contains(third, "\033_Ga=d,d=I,i=2,q=2\033\\"));
+}
+
+TEST_CASE("kitty suppresses terminal responses", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(24000, 0); // 200x120, several chunks
+    auto const image = img::Image { indices, 200, 120, palette };
+
+    kitty::KittyProtocol protocol;
+    std::string out;
+    protocol.encode(out, image);
+    protocol.encode(out, image); // second frame, so the delete escape is covered too
+
+    // Every response would land on the stdin the driver polls for the quit key, so no escape may
+    // omit q=2 -- continuation chunks and the delete included.
+    auto count = std::size_t { 0 };
+    for (auto offset = out.find("\033_G"); offset != std::string::npos;
+         offset = out.find("\033_G", offset + 1))
+    {
+        // Control data runs to the payload separator, or to the ST when there is no payload
+        // (the delete escape carries none).
+        auto const end = std::min(out.find(';', offset), out.find("\033\\", offset));
+        REQUIRE(end != std::string::npos);
+        CHECK(contains(out.substr(offset, end - offset), "q=2"));
+        ++count;
+    }
+    CHECK(count > 2); // guard against the loop trivially passing
+}
+
+TEST_CASE("kitty states the cell footprint", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+
+    SECTION("when the cell area is known")
+    {
+        kitty::KittyProtocol protocol;
+        std::string out;
+        protocol.encode(out, img::Image { indices, 2, 2, palette, 8, 4 });
+
+        // Stating it keeps the frame's size ours rather than the terminal's arithmetic.
+        CHECK(contains(out, ",c=8,r=4"));
+    }
+
+    SECTION("and defers to the terminal when it is not")
+    {
+        kitty::KittyProtocol protocol;
+        std::string out;
+        protocol.encode(out, img::Image { indices, 2, 2, palette });
+
+        CHECK_FALSE(contains(out, ",c="));
+        CHECK_FALSE(contains(out, ",r="));
+    }
+}
+
+TEST_CASE("kitty chunks payloads at the protocol limit", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(24000, 0); // 200x120 -> 72000 RGB bytes -> 96000 base64
+    auto const image = img::Image { indices, 200, 120, palette };
+
+    kitty::KittyProtocol protocol;
+    std::string out;
+    protocol.encode(out, image);
+
+    // 96000 base64 bytes at the protocol's 4096-byte limit is 24 escapes: 23 with m=1, one m=0.
+    CHECK(out.starts_with("\033_Ga=T,q=2,C=1,f=24,i=1,p=1,s=200,v=120,m=1;"));
+    CHECK(contains(out, "\033_Gq=2,m=0;")); // the last chunk closes the transmission
+
+    auto more = std::size_t { 0 };
+    for (auto offset = out.find("m=1;"); offset != std::string::npos; offset = out.find("m=1;", offset + 1))
+        ++more;
+    CHECK(more == 23);
+
+    // Only the first chunk carries the control set; continuations state m (and q) and nothing else.
+    CHECK(out.find("a=T") == out.rfind("a=T"));
 }
 
 TEST_CASE("png is structurally valid and round-trips pixels", "[png]")

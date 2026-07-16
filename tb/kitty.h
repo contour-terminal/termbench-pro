@@ -28,8 +28,15 @@ namespace kitty
 
 /// The Kitty graphics protocol (APC "_G", 24-bit RGB transmitted as base64).
 ///
-/// Each frame deletes the previously transmitted image, then transmits+displays the new one,
-/// base64-chunked into <=4096-byte pieces (the protocol's per-escape payload limit).
+/// Each frame is transmitted+displayed into whichever of two image ids is *not* currently on
+/// screen, and only then is the previously displayed id deleted. The old frame therefore stays
+/// visible for the whole (multi-megabyte) upload, so the screen is never blank.
+///
+/// Deleting first — or re-transmitting a single fixed id, which the spec defines as deleting the
+/// existing image and its placements before the new data displays — would blank the screen for the
+/// duration of the upload, which the terminal's ~60Hz renderer shows as flicker.
+///
+/// The payload is base64-chunked into <=4096-byte pieces (the protocol's per-escape payload limit).
 class KittyProtocol final: public img::ImageProtocol
 {
   public:
@@ -42,8 +49,8 @@ class KittyProtocol final: public img::ImageProtocol
         _b64.clear();
         base64::encode(_b64, _rgb);
 
-        // Replace the previous frame rather than stacking images.
-        out += "\033_Ga=d\033\\";
+        // Upload into whichever id is not on screen, so the live frame survives the upload.
+        auto const target = _live == 1 ? 2u : 1u;
 
         constexpr std::size_t ChunkSize = 4096;
         auto const total = _b64.size();
@@ -57,26 +64,52 @@ class KittyProtocol final: public img::ImageProtocol
             out += "\033_G";
             if (chunk == 0)
             {
-                // a=T: transmit & display; f=24: RGB; s/v: pixel dimensions.
-                out += "a=T,f=24,s=";
+                // a=T: transmit & display; q=2: stay silent; C=1: leave the cursor put, so the
+                // placement cannot scroll the screen; f=24: RGB; i/p: image & placement id;
+                // s/v: pixel dimensions.
+                out += "a=T,q=2,C=1,f=24,i=";
+                img::appendDecimal(out, target);
+                out += ",p=1,s=";
                 img::appendDecimal(out, frame.width);
                 out += ",v=";
                 img::appendDecimal(out, frame.height);
+                // State the cell footprint when known, so the frame's size is ours rather than the
+                // terminal's arithmetic (0 means: let the terminal decide).
+                if (frame.columns != 0 && frame.rows != 0)
+                {
+                    out += ",c=";
+                    img::appendDecimal(out, frame.columns);
+                    out += ",r=";
+                    img::appendDecimal(out, frame.rows);
+                }
                 if (more)
                     out += ",m=1";
             }
             else
             {
-                out += "m=";
+                // Continuation chunks need no keys beyond m (and q, to stay silent).
+                out += "q=2,m=";
                 out.push_back(more ? '1' : '0');
             }
             out.push_back(';');
             out.append(_b64, start, len);
             out += "\033\\";
         }
+
+        // Only now that the new frame is placed, drop the old one. d=I (uppercase) also frees the
+        // stored image data, which d=i would retain across every frame.
+        if (_live != 0)
+        {
+            out += "\033_Ga=d,d=I,i=";
+            img::appendDecimal(out, _live);
+            out += ",q=2\033\\";
+        }
+
+        _live = target;
     }
 
   private:
+    unsigned _live { 0 };           ///< Image id currently placed; 0 = nothing placed yet.
     std::vector<std::uint8_t> _rgb; ///< Reused RGB expansion buffer.
     std::string _b64;               ///< Reused base64 buffer.
 };
