@@ -17,6 +17,7 @@
 #include <charconv>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -45,6 +46,29 @@ struct Image
     unsigned width {};                     ///< Image width in pixels.
     unsigned height {};                    ///< Image height in pixels.
     std::span<Rgb const> palette;          ///< Palette; every index must be < palette.size() (<= 256).
+
+    /// The cell area the frame should occupy. Protocols able to state this explicitly should: it
+    /// makes the benchmark independent of how a terminal derives its cell size from the window, so
+    /// the number measures the protocol rather than the terminal's arithmetic.
+    unsigned columns {}; ///< Target width in cells (0 = let the terminal decide).
+    unsigned rows {};    ///< Target height in cells (0 = let the terminal decide).
+
+    /// Which of a fixed pool of pre-rendered frames this is, for protocols whose FrameModel is
+    /// Cyclic. Nullopt means a freshly computed, unnamed frame.
+    std::optional<unsigned> poolId {};
+};
+
+/// How a protocol consumes the animation.
+enum class FrameModel
+{
+    /// Every frame is freshly computed and transmitted whole. The default, and the only basis on
+    /// which protocols compare fairly against each other.
+    Streaming,
+
+    /// A fixed pool of frames is uploaded once, then cycled by reference. This is what an image
+    /// pool is *for*, but it measures a different thing: steady-state compute goes to zero and
+    /// bytes/frame collapse, so the numbers are not comparable with Streaming ones.
+    Cyclic,
 };
 
 /// Encodes image frames into one terminal image protocol's wire format.
@@ -58,6 +82,13 @@ class ImageProtocol
 
     /// @return The protocol's registry name (e.g. "sixel").
     [[nodiscard]] virtual std::string_view name() const noexcept = 0;
+
+    /// @return How this protocol consumes the animation.
+    ///
+    /// Declared by the encoder rather than carried as a registry column, so that adding a protocol
+    /// stays one row plus one header, and so the frame source is chosen from data rather than from
+    /// a name comparison in the loop.
+    [[nodiscard]] virtual FrameModel frameModel() const noexcept { return FrameModel::Streaming; }
 
     /// Encodes @p frame, appending the protocol's wire bytes to @p out.
     /// @param out   Sink the encoded bytes are appended to.

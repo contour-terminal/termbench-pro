@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <tb/gip.h>
 #include <tb/image_protocol.h>
 #include <tb/iterm2.h>
 #include <tb/kitty.h>
@@ -40,6 +41,11 @@ namespace
               [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<kitty::KittyProtocol>(); } },
             { "iterm2",
               [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<iterm2::Iterm2Protocol>(); } },
+            { "gip", [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipProtocol>(); } },
+            { "gip-png",
+              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipPngProtocol>(); } },
+            { "gip-upload",
+              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipUploadProtocol>(); } },
         };
         return table;
     }

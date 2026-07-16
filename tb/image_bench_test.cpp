@@ -13,6 +13,7 @@
  */
 
 #include <tb/base64.h>
+#include <tb/gip.h>
 #include <tb/image_protocol.h>
 #include <tb/iterm2.h>
 #include <tb/kitty.h>
@@ -217,7 +218,158 @@ TEST_CASE("image protocol registry resolves every protocol", "[registry]")
     CHECK(std::ranges::find(names, "sixel") != names.end());
     CHECK(std::ranges::find(names, "kitty") != names.end());
     CHECK(std::ranges::find(names, "iterm2") != names.end());
+    CHECK(std::ranges::find(names, "gip") != names.end());
+    CHECK(std::ranges::find(names, "gip-png") != names.end());
+    CHECK(std::ranges::find(names, "gip-upload") != names.end());
     CHECK(img::makeProtocol("does-not-exist") == nullptr);
+
+    // "sixel" must stay first: the default protocol is names.front().
+    CHECK(names.front() == "sixel");
+}
+
+TEST_CASE("frame model is declared per protocol", "[registry][gip]")
+{
+    // Only the pool protocol cycles a fixed set of frames; everything else streams. The driver
+    // picks its frame source from this, rather than from a name comparison in the loop.
+    CHECK(img::makeProtocol("sixel")->frameModel() == img::FrameModel::Streaming);
+    CHECK(img::makeProtocol("kitty")->frameModel() == img::FrameModel::Streaming);
+    CHECK(img::makeProtocol("iterm2")->frameModel() == img::FrameModel::Streaming);
+    CHECK(img::makeProtocol("gip")->frameModel() == img::FrameModel::Streaming);
+    CHECK(img::makeProtocol("gip-png")->frameModel() == img::FrameModel::Streaming);
+    CHECK(img::makeProtocol("gip-upload")->frameModel() == img::FrameModel::Cyclic);
+}
+
+namespace
+{
+/// @return the base64 body of a GIP message, i.e. what lies between ";!" and the terminating ST.
+[[nodiscard]] std::string_view gipBody(std::string_view message)
+{
+    auto const start = message.find(";!");
+    if (start == std::string_view::npos || !message.ends_with("\033\\"))
+        return {};
+    return message.substr(start + 2, message.size() - (start + 2) - 2);
+}
+} // namespace
+
+TEST_CASE("gip emits a oneshot RGB message", "[gip]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 }, { 4, 5, 6 } };
+    std::vector<std::uint8_t> const indices { 0, 1, 1, 0 }; // 2x2
+
+    gip::GipProtocol protocol;
+    std::string out;
+    protocol.encode(out, img::Image { indices, 2, 2, palette, 8, 4 });
+
+    CHECK(out.starts_with("\033P!go=s,"));
+    CHECK(out.ends_with("\033\\"));
+    CHECK(contains(out, "f=2,")); // raw RGB, so this measures framing rather than a codec
+    CHECK(contains(out, "w=2,"));
+    CHECK(contains(out, "h=2,"));
+    CHECK(contains(out, "c=8,")); // the cell area is stated, never inferred
+    CHECK(contains(out, "r=4,"));
+
+    // Compare against the expected body re-encoded, which is exact and needs no decoder.
+    auto expectedRgb = std::vector<std::uint8_t> {};
+    img::expandToRgb(expectedRgb, img::Image { indices, 2, 2, palette });
+    std::string expectedBody;
+    base64::encode(expectedBody, expectedRgb);
+    CHECK(gipBody(out) == expectedBody);
+}
+
+TEST_CASE("gip-png emits a oneshot PNG message", "[gip]")
+{
+    std::vector<img::Rgb> const palette { { 9, 8, 7 } };
+    std::vector<std::uint8_t> const indices(6, 0); // 3x2
+
+    gip::GipPngProtocol protocol;
+    std::string out;
+    protocol.encode(out, img::Image { indices, 3, 2, palette, 6, 2 });
+
+    CHECK(out.starts_with("\033P!go=s,"));
+    CHECK(contains(out, "f=4,")); // PNG
+    CHECK(out.ends_with("\033\\"));
+
+    auto expectedRgb = std::vector<std::uint8_t> {};
+    img::expandToRgb(expectedRgb, img::Image { indices, 3, 2, palette });
+    std::string expectedPng;
+    png::encode(expectedPng, expectedRgb, 3, 2);
+    std::string expectedBody;
+    base64::encode(expectedBody, bytesOf(expectedPng));
+    CHECK(gipBody(out) == expectedBody);
+}
+
+TEST_CASE("gip-upload transmits a pool slot once, then renders it by name", "[gip]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+    auto const frame = [&](unsigned poolId) {
+        return img::Image { indices, 2, 2, palette, 8, 4, poolId };
+    };
+
+    gip::GipUploadProtocol protocol;
+
+    SECTION("first sight of a slot uploads and renders")
+    {
+        std::string out;
+        protocol.encode(out, frame(0));
+        CHECK(contains(out, "\033P!go=u,"));
+        CHECK(contains(out, "\033P!go=r,"));
+        CHECK(contains(out, "n=tb0"));
+    }
+
+    SECTION("a known slot renders without retransmitting")
+    {
+        std::string first;
+        protocol.encode(first, frame(0));
+        REQUIRE(contains(first, "o=u,"));
+
+        std::string second;
+        protocol.encode(second, frame(0));
+        CHECK_FALSE(contains(second, "o=u,")); // the entire point of an image pool
+        CHECK(contains(second, "\033P!go=r,"));
+        CHECK(second.size() < first.size());
+    }
+
+    SECTION("a new slot uploads again, under its own name")
+    {
+        std::string first;
+        protocol.encode(first, frame(0));
+        std::string second;
+        protocol.encode(second, frame(1));
+        CHECK(contains(second, "o=u,"));
+        CHECK(contains(second, "n=tb1"));
+        CHECK_FALSE(contains(second, "n=tb0"));
+    }
+
+    SECTION("render always states a non-zero cell area")
+    {
+        // Render-by-name does not derive a grid from the pixel size the way oneshot does, so
+        // c=0,r=0 draws nothing at all -- and says nothing about it.
+        std::string out;
+        protocol.encode(out, frame(0));
+        auto const renderAt = out.find("\033P!go=r,");
+        REQUIRE(renderAt != std::string::npos);
+        auto const render = out.substr(renderAt);
+        CHECK(contains(render, "c=8,"));
+        CHECK(contains(render, "r=4,"));
+        CHECK_FALSE(contains(render, "c=0,"));
+        CHECK_FALSE(contains(render, "r=0,"));
+    }
+
+    SECTION("pool names are ASCII alphanumeric plus underscore")
+    {
+        // The terminal validates the name and rejects anything else -- silently.
+        std::string out;
+        protocol.encode(out, frame(7));
+        auto const nameAt = out.find("n=");
+        REQUIRE(nameAt != std::string::npos);
+        auto const name = out.substr(nameAt + 2, out.find(',', nameAt) - (nameAt + 2));
+        CHECK(name == "tb7");
+        CHECK(std::ranges::all_of(name, [](char ch) {
+            return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
+                   || ch == '_';
+        }));
+    }
 }
 
 TEST_CASE("kitty emits APC transmit framing", "[kitty]")

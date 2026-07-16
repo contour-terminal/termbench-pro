@@ -72,6 +72,12 @@ constexpr unsigned DefaultColumns = 80;
 constexpr unsigned DefaultLines = 24;
 constexpr unsigned HudLines = 1; ///< Terminal rows reserved at the bottom for the metrics HUD.
 
+/// How many pre-rendered frames a Cyclic protocol uploads and then cycles.
+///
+/// Enough that the animation still reads as motion, few enough to stay inside the terminal's image
+/// pool (Contour's holds 100 named images before evicting, and an evicted name renders nothing).
+constexpr unsigned DefaultPoolFrames = 16;
+
 /// @return The default protocol name — the first entry in the registry, so the default travels
 ///         with the registry table rather than being hardcoded in the driver.
 [[nodiscard]] std::string defaultProtocol()
@@ -92,13 +98,34 @@ struct Args
     std::optional<unsigned> fpsCap;
     std::optional<double> durationSeconds;
     double speed = 1.0;
+    unsigned poolFrames = DefaultPoolFrames;
 };
 
 /// Errors that can arise while probing the terminal.
 enum class SetupError
 {
-    InvalidGeometry, ///< The resolved image dimensions were degenerate.
+    InvalidGeometry,  ///< The resolved image dimensions were degenerate.
+    GipUnavailable,   ///< A GIP protocol was asked for, but the terminal does not speak it.
+    GipFrameTooLarge, ///< The frame exceeds what a GIP message body can carry.
 };
+
+/// The terminal drops message-body bytes past this without saying so, and the upload then fails its
+/// own exact-size check. Bounding the frame here turns silent corruption into an actionable error.
+constexpr auto GipMaxBodyBytes = std::size_t { 16 } * 1024 * 1024;
+
+/// @return The base64 body size a raw-RGB GIP frame of this geometry would carry.
+///
+/// Three bytes per pixel, inflated 4/3 by base64: exactly width*height*4.
+[[nodiscard]] constexpr std::size_t gipRgbBodyBytes(unsigned width, unsigned height) noexcept
+{
+    return static_cast<std::size_t>(width) * height * 4;
+}
+
+/// @return Whether @p protocol names one of the GIP variants.
+[[nodiscard]] constexpr bool isGipProtocol(std::string_view protocol) noexcept
+{
+    return protocol.starts_with("gip");
+}
 
 // }}}
 // {{{ platform I/O
@@ -251,18 +278,28 @@ struct Geometry
     unsigned lines = DefaultLines;     ///< Terminal height in cells.
     unsigned imageWidth = 0;           ///< Image width in pixels.
     unsigned imageHeight = 0;          ///< Image height in pixels.
+    /// The image's height in cells (the terminal's lines, less the HUD row). Protocols that can
+    /// state their cell area do, rather than letting the terminal re-derive it from pixels.
+    unsigned imageRows = 0;
 };
 
 #if !defined(_WIN32)
-/// Queries the terminal's text-area size in pixels via `CSI 14 t`.
-/// @return {width, height} in pixels, or nullopt on timeout / no reply.
-[[nodiscard]] std::optional<std::pair<unsigned, unsigned>> queryTextAreaPixels()
+/// Writes @p request to the terminal and collects the reply until @p isComplete accepts it.
+///
+/// @param request    The escape sequence to send.
+/// @param isComplete Predicate on the reply so far; polling stops as soon as it returns true.
+/// @param timeout    How long to wait before giving up.
+/// @return Whatever was read, possibly partial or empty.
+template <typename Predicate>
+[[nodiscard]] std::string queryTerminal(std::string_view request,
+                                        Predicate isComplete,
+                                        std::chrono::milliseconds timeout = std::chrono::milliseconds { 200 })
 {
-    writeAll("\033[14t"sv);
+    writeAll(request);
 
     std::string reply;
-    auto const deadline = steady_clock::now() + std::chrono::milliseconds { 200 };
-    while (steady_clock::now() < deadline && reply.find('t') == std::string::npos)
+    auto const deadline = steady_clock::now() + timeout;
+    while (steady_clock::now() < deadline && !isComplete(reply))
     {
         pollfd descriptor { STDIN_FILENO, POLLIN, 0 };
         auto const remaining =
@@ -270,12 +307,21 @@ struct Geometry
         if (::poll(&descriptor, 1, static_cast<int>(std::max<long long>(0, remaining))) <= 0)
             break;
 
-        std::array<char, 64> buffer {};
+        std::array<char, 256> buffer {};
         auto const count = ::read(STDIN_FILENO, buffer.data(), buffer.size());
         if (count <= 0)
             break;
         reply.append(buffer.data(), static_cast<std::size_t>(count));
     }
+    return reply;
+}
+
+/// Queries the terminal's text-area size in pixels via `CSI 14 t`.
+/// @return {width, height} in pixels, or nullopt on timeout / no reply.
+[[nodiscard]] std::optional<std::pair<unsigned, unsigned>> queryTextAreaPixels()
+{
+    auto const reply =
+        queryTerminal("\033[14t"sv, [](std::string const& r) { return r.find('t') != std::string::npos; });
 
     unsigned height = 0;
     unsigned width = 0;
@@ -284,6 +330,57 @@ struct Geometry
         && width > 0 && height > 0)
         return std::pair { width, height };
     return std::nullopt;
+}
+
+/// What the terminal reports about its Good Image Protocol support.
+struct GipCapabilities
+{
+    unsigned maxImages = 0;     ///< Named images the pool holds before evicting.
+    unsigned long maxBytes = 0; ///< Largest image the terminal accepts, in bytes.
+    unsigned maxWidth = 0;      ///< Largest image width, in pixels.
+    unsigned maxHeight = 0;     ///< Largest image height, in pixels.
+};
+
+/// Why a GIP probe failed.
+enum class GipError
+{
+    Disabled, ///< The terminal answered, but does not speak GIP.
+    NoReply,  ///< The terminal did not answer at all.
+};
+
+/// Asks the terminal whether it speaks GIP, and with what limits.
+///
+/// Sends the GIP query and a Device Attributes request in one round trip. Every terminal answers
+/// DA1, so its reply is a deterministic end marker; without it, concluding "no GIP" would mean
+/// waiting out the timeout and assuming.
+///
+/// This matters because a terminal with GIP turned off swallows the sequence in silence.
+/// Benchmarking against that reports a wonderfully fast protocol that draws nothing at all.
+[[nodiscard]] std::expected<GipCapabilities, GipError> probeGip()
+{
+    auto const reply = queryTerminal("\033P!go=q\033\\\033[c"sv,
+                                     [](std::string const& r) { return r.find('c') != std::string::npos; });
+    if (reply.empty())
+        return std::unexpected(GipError::NoReply);
+
+    auto const status = reply.find("\033P!gs=");
+    if (status == std::string::npos)
+        return std::unexpected(GipError::Disabled);
+
+    // Reply shape: DCS ! g s=8,m=<n>,b=<n>,w=<n>,h=<n> ST
+    auto const readKey = [&](std::string_view key) -> unsigned long {
+        auto const at = reply.find(key, status);
+        if (at == std::string::npos)
+            return 0;
+        return std::strtoul(reply.c_str() + at + key.size(), nullptr, 10);
+    };
+
+    return GipCapabilities {
+        .maxImages = static_cast<unsigned>(readKey("m="sv)),
+        .maxBytes = readKey("b="sv),
+        .maxWidth = static_cast<unsigned>(readKey("w="sv)),
+        .maxHeight = static_cast<unsigned>(readKey("h="sv)),
+    };
 }
 #endif
 
@@ -346,7 +443,28 @@ struct Geometry
     if (imageWidth == 0 || imageHeight == 0)
         return std::unexpected(SetupError::InvalidGeometry);
 
-    return Geometry { columns, lines, imageWidth, imageHeight };
+    if (isGipProtocol(args.protocol))
+    {
+        // Bound the frame before emitting any: the terminal truncates an oversized body silently,
+        // and the upload then fails its own size check, so the run would report throughput for a
+        // frame that never appeared.
+        if (gipRgbBodyBytes(imageWidth, imageHeight) > GipMaxBodyBytes)
+            return std::unexpected(SetupError::GipFrameTooLarge);
+
+#if !defined(_WIN32)
+        if (interactive)
+        {
+            auto const capabilities = probeGip();
+            if (!capabilities)
+                return std::unexpected(SetupError::GipUnavailable);
+            if (capabilities->maxWidth != 0
+                && (imageWidth > capabilities->maxWidth || imageHeight > capabilities->maxHeight))
+                return std::unexpected(SetupError::GipFrameTooLarge);
+        }
+#endif
+    }
+
+    return Geometry { columns, lines, imageWidth, imageHeight, usableLines };
 }
 
 // }}}
@@ -387,10 +505,18 @@ struct Geometry
 /// Prints the end-of-run benchmark summary.
 void printSummary(std::ostream& os, Args const& args, Geometry const& geometry, plasma::Summary const& s)
 {
+    auto const protocol = img::makeProtocol(args.protocol);
+    auto const cyclic = protocol && protocol->frameModel() == img::FrameModel::Cyclic;
+
     os << '\n';
     os << std::format("Image protocol benchmark — {}\n", args.protocol);
     os << std::format(
         "  Resolution     : {}x{} px, {} colors\n", geometry.imageWidth, geometry.imageHeight, args.colors);
+    if (cyclic)
+        os << std::format("  Frame model    : cyclic, {} pooled frames — NOT comparable with streaming\n"
+                          "                   protocols: the pixels are uploaded once, so compute and\n"
+                          "                   bytes/frame measure a reference, not a frame.\n",
+                          args.poolFrames);
     os << std::format("  Frames         : {}\n", s.frames);
     os << std::format("  Duration       : {:.2f} s\n", s.elapsedSeconds);
     os << std::format("  Throughput     : {} total, {:.2f} MiB/s avg, {:.2f} MiB/s peak\n",
@@ -432,6 +558,8 @@ void printUsage(std::string_view program)
                              "  --fps N           Cap the frame rate to N frames per second\n"
                              "  --duration S      Auto-exit after S seconds (for non-interactive runs)\n"
                              "  --speed F         Animation speed multiplier; default: 1.0\n"
+                             "  --pool-frames N   Frames a pooling protocol (gip-upload) uploads and\n"
+                             "                    then cycles; default: 16\n"
                              "  --help, -h        Show this help\n\n"
                              "Press ESC or q to quit an interactive run.\n",
                              program,
@@ -557,6 +685,13 @@ void printUsage(std::string_view program)
                 return std::unexpected(EXIT_FAILURE);
             args.durationSeconds = *value;
         }
+        else if (arg == "--pool-frames"sv)
+        {
+            std::optional<unsigned> value;
+            if (!takeUnsigned(i, value, arg))
+                return std::unexpected(EXIT_FAILURE);
+            args.poolFrames = std::max(1u, value.value_or(DefaultPoolFrames));
+        }
         else if (arg == "--speed"sv)
         {
             auto const value = takeDouble(i, arg);
@@ -577,6 +712,118 @@ void printUsage(std::string_view program)
 // }}}
 // {{{ render loop
 
+/// Supplies the frame to transmit on each tick.
+///
+/// Which one the loop uses is chosen from the protocol's declared FrameModel, so the loop itself
+/// contains no per-protocol special case.
+class FrameSource
+{
+  public:
+    virtual ~FrameSource() = default;
+
+    /// @param frameId Monotonic tick counter.
+    /// @param elapsed Animation time in seconds.
+    /// @return The frame to transmit.
+    [[nodiscard]] virtual img::Image at(std::size_t frameId, double elapsed) = 0;
+};
+
+/// Renders a fresh frame every tick. The honest default: whole-frame compute plus whole-frame
+/// transmission is what makes protocols comparable against each other.
+class StreamingFrameSource final: public FrameSource
+{
+  public:
+    StreamingFrameSource(Args const& args, Geometry const& geometry, std::span<img::Rgb const> palette):
+        _args { args },
+        _geometry { geometry },
+        _palette { palette },
+        _indices(static_cast<std::size_t>(geometry.imageWidth) * geometry.imageHeight, std::uint8_t { 0 })
+    {
+    }
+
+    [[nodiscard]] img::Image at(std::size_t /*frameId*/, double elapsed) override
+    {
+        plasma::render(
+            _indices, _geometry.imageWidth, _geometry.imageHeight, elapsed * _args.speed, _args.colors);
+        return img::Image { .indices = _indices,
+                            .width = _geometry.imageWidth,
+                            .height = _geometry.imageHeight,
+                            .palette = _palette,
+                            .columns = _geometry.columns,
+                            .rows = _geometry.imageRows };
+    }
+
+  private:
+    Args const& _args;
+    Geometry const& _geometry;
+    std::span<img::Rgb const> _palette;
+    std::vector<std::uint8_t> _indices;
+};
+
+/// Cycles a fixed pool of frames rendered once up front.
+///
+/// This is what an image pool is for: the terminal already holds the pixels, so a frame costs a
+/// reference rather than a retransmission. The animation keeps moving, so frame rate still means
+/// something -- but compute drops to zero and bytes/frame collapse, which is why a Cyclic protocol's
+/// numbers are not comparable with a Streaming one's.
+class CyclicFrameSource final: public FrameSource
+{
+  public:
+    CyclicFrameSource(Args const& args,
+                      Geometry const& geometry,
+                      std::span<img::Rgb const> palette,
+                      unsigned poolSize):
+        _geometry { geometry }, _palette { palette }
+    {
+        auto const pixels = static_cast<std::size_t>(geometry.imageWidth) * geometry.imageHeight;
+        _frames.reserve(poolSize);
+        // Sample one full animation cycle, so cycling the pool reads as continuous motion rather
+        // than as a jump when it wraps.
+        for (auto const index: std::views::iota(0u, poolSize))
+        {
+            auto frame = std::vector<std::uint8_t>(pixels, std::uint8_t { 0 });
+            auto const phase = (static_cast<double>(index) / poolSize) * PoolCycleSeconds * args.speed;
+            plasma::render(frame, geometry.imageWidth, geometry.imageHeight, phase, args.colors);
+            _frames.emplace_back(std::move(frame));
+        }
+    }
+
+    [[nodiscard]] img::Image at(std::size_t frameId, double /*elapsed*/) override
+    {
+        auto const slot = static_cast<unsigned>(frameId % _frames.size());
+        return img::Image { .indices = _frames[slot],
+                            .width = _geometry.imageWidth,
+                            .height = _geometry.imageHeight,
+                            .palette = _palette,
+                            .columns = _geometry.columns,
+                            .rows = _geometry.imageRows,
+                            .poolId = slot };
+    }
+
+  private:
+    /// Animation seconds the pool spans; one full plasma cycle.
+    static constexpr double PoolCycleSeconds = 8.0;
+
+    Geometry const& _geometry;
+    std::span<img::Rgb const> _palette;
+    std::vector<std::vector<std::uint8_t>> _frames;
+};
+
+/// @return The frame source @p protocol's frame model calls for.
+[[nodiscard]] std::unique_ptr<FrameSource> makeFrameSource(img::ImageProtocol const& protocol,
+                                                           Args const& args,
+                                                           Geometry const& geometry,
+                                                           std::span<img::Rgb const> palette)
+{
+    switch (protocol.frameModel())
+    {
+        case img::FrameModel::Cyclic:
+            return std::make_unique<CyclicFrameSource>(
+                args, geometry, palette, std::max(1u, args.poolFrames));
+        case img::FrameModel::Streaming: break;
+    }
+    return std::make_unique<StreamingFrameSource>(args, geometry, palette);
+}
+
 /// Runs the animation/benchmark loop until quit/duration/signal, returning the aggregated summary.
 [[nodiscard]] plasma::Summary runLoop(Args const& args,
                                       Geometry const& geometry,
@@ -584,8 +831,7 @@ void printUsage(std::string_view program)
 {
     auto const palette = plasma::makePalette(args.colors);
     auto protocol = img::makeProtocol(args.protocol);
-    std::vector<std::uint8_t> indices(static_cast<std::size_t>(geometry.imageWidth) * geometry.imageHeight,
-                                      std::uint8_t { 0 });
+    auto frameSource = makeFrameSource(*protocol, args, geometry, palette);
 
     std::string frame;
     frame.reserve(std::size_t { 1 } << 20);
@@ -616,12 +862,12 @@ void printUsage(std::string_view program)
             break;
 
         auto const t0 = steady_clock::now();
-        plasma::render(indices, geometry.imageWidth, geometry.imageHeight, elapsed * args.speed, args.colors);
+        auto const image = frameSource->at(frameId, elapsed);
         auto const t1 = steady_clock::now();
 
         frame.clear();
         frame += "\033[H";
-        protocol->encode(frame, img::Image { indices, geometry.imageWidth, geometry.imageHeight, palette });
+        protocol->encode(frame, image);
         auto const t2 = steady_clock::now();
 
         writeAll(frame);
@@ -678,6 +924,7 @@ int main(int argc, char const* argv[])
     Geometry geometry;
     plasma::Summary summary;
     bool geometryOk = false;
+    auto setupError = SetupError::InvalidGeometry;
     {
         TerminalSession session;
         auto const geometryResult = detectGeometry(args, session.interactive());
@@ -687,11 +934,32 @@ int main(int argc, char const* argv[])
             geometryOk = true;
             summary = runLoop(args, geometry, session);
         }
+        else
+            setupError = geometryResult.error();
     }
 
     if (!geometryOk)
     {
-        std::cerr << "Failed to determine a usable terminal geometry.\n";
+        switch (setupError)
+        {
+            case SetupError::InvalidGeometry:
+                std::cerr << "Failed to determine a usable terminal geometry.\n";
+                break;
+            case SetupError::GipUnavailable:
+                std::cerr << std::format(
+                    "GIP is not enabled in this terminal, so --protocol {} would measure nothing.\n"
+                    "Set 'images.good_image_protocol: true' in contour.yml, or pick --protocol sixel.\n",
+                    args.protocol);
+                break;
+            case SetupError::GipFrameTooLarge:
+                std::cerr << std::format(
+                    "The requested frame exceeds what a GIP message body carries ({} MiB), or what "
+                    "this\nterminal accepts. It would be truncated silently rather than reported, so "
+                    "the run\nwould measure a frame that never arrived. Use --width/--height to ask "
+                    "for less.\n",
+                    GipMaxBodyBytes / (1024 * 1024));
+                break;
+        }
         return EXIT_FAILURE;
     }
 
