@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <expected>
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <ranges>
@@ -99,6 +100,11 @@ struct Args
     std::optional<double> durationSeconds;
     double speed = 1.0;
     unsigned poolFrames = DefaultPoolFrames;
+    /// Where the summary goes. Empty means stdout.
+    ///
+    /// Needed to measure against a real terminal at all: stdout carries the image data, so it has
+    /// to BE the terminal, which leaves nowhere on stdout to read a result from.
+    std::string outputPath;
 };
 
 /// Errors that can arise while probing the terminal.
@@ -560,6 +566,9 @@ void printUsage(std::string_view program)
                              "  --speed F         Animation speed multiplier; default: 1.0\n"
                              "  --pool-frames N   Frames a pooling protocol (gip-upload) uploads and\n"
                              "                    then cycles; default: 16\n"
+                             "  --output FILE     Write the summary here instead of stdout. Needed to\n"
+                             "                    benchmark a real terminal, since stdout is the image\n"
+                             "                    data and must go to the terminal itself.\n"
                              "  --help, -h        Show this help\n\n"
                              "Press ESC or q to quit an interactive run.\n",
                              program,
@@ -684,6 +693,15 @@ void printUsage(std::string_view program)
             if (!value)
                 return std::unexpected(EXIT_FAILURE);
             args.durationSeconds = *value;
+        }
+        else if (arg == "--output"sv)
+        {
+            if (i + 1 >= argc)
+            {
+                std::cerr << std::format("Missing value for {}\n", arg);
+                return std::unexpected(EXIT_FAILURE);
+            }
+            args.outputPath = argv[++i];
         }
         else if (arg == "--pool-frames"sv)
         {
@@ -963,6 +981,14 @@ int main(int argc, char const* argv[])
         return EXIT_FAILURE;
     }
 
-    printSummary(std::cout, args, geometry, summary);
+    if (args.outputPath.empty())
+        printSummary(std::cout, args, geometry, summary);
+    else if (auto file = std::ofstream(args.outputPath); file)
+        printSummary(file, args, geometry, summary);
+    else
+    {
+        std::cerr << std::format("Cannot write summary to '{}'.\n", args.outputPath);
+        return EXIT_FAILURE;
+    }
     return EXIT_SUCCESS;
 }
