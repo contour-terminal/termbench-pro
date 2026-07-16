@@ -854,6 +854,8 @@ class CyclicFrameSource final: public FrameSource
     std::string frame;
     frame.reserve(std::size_t { 1 } << 20);
 
+    std::string hud; ///< Previous frame's HUD, emitted inside the next frame's synchronized update.
+
     plasma::Metrics metrics;
 
     auto const toMs = [](steady_clock::duration d) {
@@ -884,14 +886,33 @@ class CyclicFrameSource final: public FrameSource
         auto const t1 = steady_clock::now();
 
         frame.clear();
+        // Synchronized output: the terminal presents image and HUD as one update rather than
+        // rendering whatever it happens to have parsed when its tick fires. Terminals that do not
+        // implement DECSET 2026 ignore it. Only interactive runs render; a redirected run is
+        // capturing bytes for inspection and should not get the wrapper.
+        if (session.interactive())
+            frame += "\033[?2026h";
         frame += "\033[H";
+
+        // Measure the image payload alone, so the wrapper and HUD stay out of the throughput
+        // numbers regardless of how the frame is framed around it.
+        auto const payloadStart = frame.size();
         protocol->encode(frame, image);
+        auto const payloadBytes = frame.size() - payloadStart;
         auto const t2 = steady_clock::now();
+
+        // The HUD reports a sample that includes the write it would be part of, so it necessarily
+        // shows the previous frame's timings; `hud` was built at the end of the last iteration.
+        if (session.interactive())
+        {
+            frame += hud;
+            frame += "\033[?2026l";
+        }
 
         writeAll(frame);
         auto const t3 = steady_clock::now();
 
-        auto const sample = plasma::Sample { toMs(t1 - t0), toMs(t2 - t1), toMs(t3 - t2), frame.size() };
+        auto const sample = plasma::Sample { toMs(t1 - t0), toMs(t2 - t1), toMs(t3 - t2), payloadBytes };
         metrics.add(sample);
         ++frameId;
 
@@ -902,7 +923,7 @@ class CyclicFrameSource final: public FrameSource
         smoothedFps = smoothedFps == 0.0 ? instantFps : (smoothedFps * 0.9 + instantFps * 0.1);
 
         if (session.interactive())
-            writeAll(buildHud(args, geometry, *protocol, smoothedFps, sample, frameId));
+            hud = buildHud(args, geometry, *protocol, smoothedFps, sample, frameId);
 
         if (frameInterval)
         {
