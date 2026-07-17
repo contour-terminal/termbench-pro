@@ -13,15 +13,13 @@
  */
 #pragma once
 
-#include <tb/base64.h>
 #include <tb/image_protocol.h>
 
 #include <algorithm>
-#include <cstdint>
+#include <cstddef>
 #include <ranges>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace kitty
 {
@@ -44,10 +42,9 @@ class KittyProtocol final: public img::ImageProtocol
 
     void encode(std::string& out, img::Image const& frame) override
     {
-        img::expandToRgb(_rgb, frame);
-
-        _b64.clear();
-        base64::encode(_b64, _rgb);
+        // Straight from palette indices to base64, skipping the intermediate RGB buffer entirely.
+        // Byte-for-byte the same payload as expanding and then encoding it.
+        img::expandToBase64(_b64, frame);
 
         // Upload into whichever id is not on screen, so the live frame survives the upload.
         auto const target = _live == 1 ? 2u : 1u;
@@ -109,9 +106,8 @@ class KittyProtocol final: public img::ImageProtocol
     }
 
   private:
-    unsigned _live { 0 };           ///< Image id currently placed; 0 = nothing placed yet.
-    std::vector<std::uint8_t> _rgb; ///< Reused RGB expansion buffer.
-    std::string _b64;               ///< Reused base64 buffer.
+    unsigned _live { 0 }; ///< Image id currently placed; 0 = nothing placed yet.
+    std::string _b64;     ///< Reused base64 buffer.
 };
 
 } // namespace kitty

@@ -13,11 +13,15 @@
  */
 #pragma once
 
+#include <tb/base64.h>
+
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -114,15 +118,61 @@ inline void appendDecimal(std::string& out, unsigned long long value)
 /// @param frame The frame whose indices are expanded through its palette.
 inline void expandToRgb(std::vector<std::uint8_t>& out, Image const& frame)
 {
-    out.clear();
-    out.reserve(static_cast<std::size_t>(frame.width) * frame.height * 3u);
+    // Sized up front and written through an iterator: push_back would re-check the capacity for
+    // every one of the three channels of every pixel. Callers reuse their buffer, so the resize
+    // only ever allocates on the first frame.
+    out.resize(frame.indices.size() * 3u);
+    auto it = out.begin();
     for (auto const index: frame.indices)
     {
         auto const color = frame.palette[index];
-        out.push_back(color.r);
-        out.push_back(color.g);
-        out.push_back(color.b);
+        *it++ = color.r;
+        *it++ = color.g;
+        *it++ = color.b;
     }
+}
+
+/// The number of base64 characters one pixel of 24-bit RGB occupies. Three bytes in, four out.
+inline constexpr std::size_t Base64CharsPerPixel = 4;
+
+/// Encodes a palette-indexed frame directly as base64-encoded 24-bit RGB, without ever
+/// materialising the RGB bytes.
+///
+/// Every pixel expands to exactly three bytes, and base64 encodes exactly three bytes per
+/// four-character group, so pixel N is always base64 group N: no group straddles two pixels, and
+/// width*height*3 is always divisible by 3 so there is no padding tail either. A palette holds at
+/// most 256 entries, so every pixel's four output characters can be precomputed once per frame and
+/// the image then encoded with one table lookup per pixel — no intermediate RGB buffer, and none
+/// of its memory traffic.
+///
+/// The output is byte-identical to expandToRgb() followed by base64::encode(); this is the same
+/// wire format produced faster, so that the terminal rather than the encoder stays the benchmark's
+/// bottleneck.
+///
+/// @param out   Destination; cleared, then filled with indices.size()*4 characters. (Note this
+///              replaces @p out, whereas base64::encode() appends to it.)
+/// @param frame The frame whose indices are expanded through its palette.
+inline void expandToBase64(std::string& out, Image const& frame)
+{
+    // One pre-encoded base64 group per palette entry.
+    auto table = std::array<std::array<char, Base64CharsPerPixel>, 256> {};
+    auto const paletteSize = std::min(frame.palette.size(), table.size());
+    for (auto const i: std::views::iota(std::size_t { 0 }, paletteSize))
+    {
+        auto const color = frame.palette[i];
+        auto const b0 = static_cast<unsigned>(color.r);
+        auto const b1 = static_cast<unsigned>(color.g);
+        auto const b2 = static_cast<unsigned>(color.b);
+        table[i] = { base64::Alphabet[b0 >> 2],
+                     base64::Alphabet[((b0 & 0x03u) << 4) | (b1 >> 4)],
+                     base64::Alphabet[((b1 & 0x0Fu) << 2) | (b2 >> 6)],
+                     base64::Alphabet[b2 & 0x3Fu] };
+    }
+
+    out.resize(frame.indices.size() * Base64CharsPerPixel);
+    auto it = out.begin();
+    for (auto const index: frame.indices)
+        it = std::ranges::copy(table[index], it).out;
 }
 
 /// Constructs the image protocol registered under @p name.

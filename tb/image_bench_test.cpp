@@ -166,6 +166,65 @@ TEST_CASE("base64 encodes RFC 4648 vectors", "[base64]")
     CHECK(encode("foobar") == "Zm9vYmFy");
 }
 
+TEST_CASE("expanding to RGB looks each pixel up in the palette", "[image]")
+{
+    // Pinned against bytes computed by hand rather than by re-deriving them with the function
+    // under test, which is what makes this a check rather than a tautology.
+    std::vector<img::Rgb> const palette { { 10, 20, 30 }, { 40, 50, 60 }, { 70, 80, 90 } };
+    std::vector<std::uint8_t> const indices { 2, 0, 1, 0 }; // 2x2
+
+    std::vector<std::uint8_t> rgb;
+    img::expandToRgb(rgb, img::Image { indices, 2, 2, palette });
+
+    CHECK(rgb == std::vector<std::uint8_t> { 70, 80, 90, 10, 20, 30, 40, 50, 60, 10, 20, 30 });
+}
+
+TEST_CASE("expanding to base64 matches expanding to RGB and encoding that", "[image]")
+{
+    // The fused encoder skips the RGB buffer entirely, so its whole contract is that it emits
+    // exactly what the two-step path would. Nothing else may change on the wire.
+    auto const check = [](unsigned width, unsigned height, std::size_t paletteSize) {
+        std::vector<img::Rgb> palette;
+        for (auto const i: std::views::iota(std::size_t { 0 }, paletteSize))
+            palette.push_back(img::Rgb { static_cast<std::uint8_t>(i * 7 + 1),
+                                         static_cast<std::uint8_t>(255 - i * 3),
+                                         static_cast<std::uint8_t>(i * 11 + 5) });
+
+        std::vector<std::uint8_t> indices(static_cast<std::size_t>(width) * height);
+        for (auto const i: std::views::iota(std::size_t { 0 }, indices.size()))
+            indices[i] = static_cast<std::uint8_t>((i * 31 + i / 3) % paletteSize);
+
+        auto const frame = img::Image { indices, width, height, palette };
+
+        std::vector<std::uint8_t> rgb;
+        img::expandToRgb(rgb, frame);
+        std::string expected;
+        base64::encode(expected, rgb);
+
+        std::string fused;
+        img::expandToBase64(fused, frame);
+
+        CHECK(fused == expected);
+    };
+
+    check(1, 1, 1);
+    check(2, 2, 3);
+    check(3, 5, 7);
+    check(64, 32, 256); // a full palette, and a payload past one chunk's worth
+}
+
+TEST_CASE("expanding to base64 handles an empty frame", "[image]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices {};
+
+    std::string out;
+    out = "stale";
+    img::expandToBase64(out, img::Image { indices, 0, 0, palette });
+
+    CHECK(out.empty()); // replaces its sink rather than appending to it
+}
+
 TEST_CASE("sixel emits DCS framing and palette registers", "[sixel]")
 {
     std::vector<img::Rgb> const palette { { 255, 0, 0 }, { 0, 255, 0 } };
