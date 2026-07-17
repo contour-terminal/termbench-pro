@@ -11,6 +11,7 @@ install_deps_ubuntu()
         cmake
         g++
         make
+        zlib1g-dev
     )
 
     if [[ "${RELEASE}" < "19.04" ]]; then

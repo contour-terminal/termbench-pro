@@ -13,10 +13,13 @@
  */
 #pragma once
 
+#include <tb/deflate.h>
+
 #include <array>
 #include <cstdint>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -47,32 +50,6 @@ namespace detail
         for (auto const byte: data)
             crc = table[(crc ^ byte) & 0xFFu] ^ (crc >> 8);
         return crc;
-    }
-
-    /// @return The Adler-32 checksum (RFC 1950) of @p data.
-    /// @param data Bytes to checksum.
-    [[nodiscard]] inline std::uint32_t adler32(std::span<std::uint8_t const> data) noexcept
-    {
-        constexpr std::uint32_t Mod = 65521u;
-        constexpr std::size_t NMax = 5552; // largest run before a modulo is required
-        std::uint32_t a = 1;
-        std::uint32_t b = 0;
-
-        auto const n = data.size();
-        auto const blocks = (n + NMax - 1) / NMax;
-        for (auto const blk: std::views::iota(std::size_t { 0 }, blocks))
-        {
-            auto const start = blk * NMax;
-            auto const len = std::min(NMax, n - start);
-            for (auto const byte: data.subspan(start, len))
-            {
-                a += byte;
-                b += a;
-            }
-            a %= Mod;
-            b %= Mod;
-        }
-        return (b << 16) | a;
     }
 
     /// @return @p value as 4 big-endian bytes.
@@ -112,15 +89,24 @@ namespace detail
 
 /// Encodes an 8-bit truecolor (RGB) image as a PNG byte stream appended to @p out.
 ///
-/// The DEFLATE payload uses only uncompressed ("stored") blocks, so the encoder is fully
-/// self-contained — no zlib, no third-party dependency. That trades payload size for zero
-/// dependencies, which is acceptable (and a legitimate stress input) for a throughput benchmark.
+/// The PNG framing (signature, chunks, CRCs) is written here; the IDAT payload is deflated by the
+/// caller-supplied @p deflator, which carries the level. At zlib::NoCompression that payload is
+/// stored rather than compressed, which keeps the encoder's output a deliberately large throughput
+/// stress input — the default — while a higher level trades client CPU for wire bytes.
 ///
-/// @param out    Sink the PNG bytes are appended to.
-/// @param rgb    Row-major RGB pixel data, size == width*height*3.
-/// @param width  Image width in pixels (> 0).
-/// @param height Image height in pixels (> 0).
-inline void encode(std::string& out, std::span<std::uint8_t const> rgb, unsigned width, unsigned height)
+/// The deflator is injected rather than created here so that a benchmark loop can reuse one stream
+/// across frames instead of paying zlib's setup per frame.
+///
+/// @param out      Sink the PNG bytes are appended to.
+/// @param rgb      Row-major RGB pixel data, size == width*height*3.
+/// @param width    Image width in pixels (> 0).
+/// @param height   Image height in pixels (> 0).
+/// @param deflator The deflate stream compressing the IDAT payload.
+inline void encode(std::string& out,
+                   std::span<std::uint8_t const> rgb,
+                   unsigned width,
+                   unsigned height,
+                   zlib::Deflator& deflator)
 {
     using namespace detail;
 
@@ -152,36 +138,15 @@ inline void encode(std::string& out, std::span<std::uint8_t const> rgb, unsigned
                    rgb.begin() + static_cast<std::ptrdiff_t>(rowStart + rowBytes));
     }
 
-    // zlib stream: 2-byte header, DEFLATE stored blocks, trailing Adler-32.
-    std::vector<std::uint8_t> zlib;
-    zlib.push_back(0x78u); // CMF: deflate, 32K window
-    zlib.push_back(0x01u); // FLG: no preset dict, valid check bits for 0x7801
+    // The zlib stream — header, DEFLATE blocks and the trailing Adler-32 — is what IDAT carries.
+    std::vector<std::uint8_t> compressed;
+    if (auto const result = deflator.compress(compressed, raw); !result)
+        // deflateBound sized the output and the level was validated at the CLI boundary, so a
+        // failure here is a broken invariant (or OOM) rather than a recoverable condition. The
+        // pure layer reports it as a value; encode() cannot, so it escalates.
+        throw std::runtime_error { "png: deflating the image data failed" };
 
-    constexpr std::size_t MaxBlock = 65535;
-    auto const total = raw.size();
-    auto const blockCount = total == 0 ? std::size_t { 1 } : (total + MaxBlock - 1) / MaxBlock;
-    for (auto const block: std::views::iota(std::size_t { 0 }, blockCount))
-    {
-        auto const offset = block * MaxBlock;
-        auto const blockLen = std::min(MaxBlock, total - offset);
-        auto const isLast = (block + 1 == blockCount);
-
-        zlib.push_back(isLast ? std::uint8_t { 1 } : std::uint8_t { 0 }); // BFINAL, BTYPE=stored
-        auto const len = static_cast<std::uint16_t>(blockLen);
-        auto const nlen = static_cast<std::uint16_t>(~len);
-        zlib.push_back(static_cast<std::uint8_t>(len & 0xFFu));
-        zlib.push_back(static_cast<std::uint8_t>((len >> 8) & 0xFFu));
-        zlib.push_back(static_cast<std::uint8_t>(nlen & 0xFFu));
-        zlib.push_back(static_cast<std::uint8_t>((nlen >> 8) & 0xFFu));
-        zlib.insert(zlib.end(),
-                    raw.begin() + static_cast<std::ptrdiff_t>(offset),
-                    raw.begin() + static_cast<std::ptrdiff_t>(offset + blockLen));
-    }
-
-    for (auto const byte: be32(adler32(raw)))
-        zlib.push_back(byte);
-
-    appendChunk(out, "IDAT", zlib);
+    appendChunk(out, "IDAT", compressed);
     appendChunk(out, "IEND", {});
 }
 

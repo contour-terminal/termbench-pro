@@ -25,10 +25,13 @@ namespace img
 namespace
 {
     /// One row of the protocol registry: a name plus a factory for its encoder.
+    ///
+    /// The factory takes the driver's options and decides what its protocol makes of them, so a
+    /// protocol that honours a knob does not oblige the others to know about it.
     struct Entry
     {
         std::string_view name;
-        std::unique_ptr<ImageProtocol> (*make)();
+        std::unique_ptr<ImageProtocol> (*make)(ProtocolOptions const&);
     };
 
     /// The registry table. Adding a protocol is a one-row change here (plus its header).
@@ -36,26 +39,39 @@ namespace
     {
         static Entry const table[] = {
             { "sixel",
-              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<sixel::SixelProtocol>(); } },
+              [](ProtocolOptions const&) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<sixel::SixelProtocol>();
+              } },
             { "kitty",
-              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<kitty::KittyProtocol>(); } },
+              [](ProtocolOptions const& options) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<kitty::KittyProtocol>(options.compressionLevel);
+              } },
             { "iterm2",
-              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<iterm2::Iterm2Protocol>(); } },
-            { "gip", [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipProtocol>(); } },
+              [](ProtocolOptions const& options) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<iterm2::Iterm2Protocol>(options.compressionLevel);
+              } },
+            { "gip",
+              [](ProtocolOptions const&) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<gip::GipProtocol>();
+              } },
             { "gip-png",
-              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipPngProtocol>(); } },
+              [](ProtocolOptions const& options) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<gip::GipPngProtocol>(options.compressionLevel);
+              } },
             { "gip-upload",
-              [] -> std::unique_ptr<ImageProtocol> { return std::make_unique<gip::GipUploadProtocol>(); } },
+              [](ProtocolOptions const&) -> std::unique_ptr<ImageProtocol> {
+                  return std::make_unique<gip::GipUploadProtocol>();
+              } },
         };
         return table;
     }
 } // namespace
 
-std::unique_ptr<ImageProtocol> makeProtocol(std::string_view name)
+std::unique_ptr<ImageProtocol> makeProtocol(std::string_view name, ProtocolOptions const& options)
 {
     for (auto const& entry: registry())
         if (entry.name == name)
-            return entry.make();
+            return entry.make(options);
     return nullptr;
 }
 

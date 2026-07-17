@@ -13,13 +13,18 @@
  */
 #pragma once
 
+#include <tb/base64.h>
+#include <tb/deflate.h>
 #include <tb/image_protocol.h>
 
 #include <algorithm>
-#include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace kitty
 {
@@ -35,16 +40,28 @@ namespace kitty
 /// duration of the upload, which the terminal's ~60Hz renderer shows as flicker.
 ///
 /// The payload is base64-chunked into <=4096-byte pieces (the protocol's per-escape payload limit).
+///
+/// At a non-zero compression level the pixel data is deflated before being base64-encoded, which
+/// the protocol's o=z key announces. That trades client CPU for wire bytes and measures the
+/// terminal's inflate path rather than its raw parse path, so its throughput figures are not
+/// comparable with the uncompressed ones.
 class KittyProtocol final: public img::ImageProtocol
 {
   public:
+    /// @param compressionLevel zlib deflate level; zlib::NoCompression transmits raw RGB.
+    explicit KittyProtocol(int compressionLevel = zlib::NoCompression)
+    {
+        // Engaged only when compressing, so the uncompressed path pays none of zlib's stream
+        // setup or its internal allocations.
+        if (compressionLevel != zlib::NoCompression)
+            _deflator.emplace(compressionLevel);
+    }
+
     [[nodiscard]] std::string_view name() const noexcept override { return "kitty"; }
 
     void encode(std::string& out, img::Image const& frame) override
     {
-        // Straight from palette indices to base64, skipping the intermediate RGB buffer entirely.
-        // Byte-for-byte the same payload as expanding and then encoding it.
-        img::expandToBase64(_b64, frame);
+        buildPayload(frame);
 
         // Upload into whichever id is not on screen, so the live frame survives the upload.
         auto const target = _live == 1 ? 2u : 1u;
@@ -70,6 +87,10 @@ class KittyProtocol final: public img::ImageProtocol
                 img::appendDecimal(out, frame.width);
                 out += ",v=";
                 img::appendDecimal(out, frame.height);
+                // o=z: the payload is deflated. Only f=100 (PNG) additionally needs the data size
+                // stated; for f=24 the s/v dimensions already imply the decompressed length.
+                if (_deflator)
+                    out += ",o=z";
                 // State the cell footprint when known, so the frame's size is ours rather than the
                 // terminal's arithmetic (0 means: let the terminal decide).
                 if (frame.columns != 0 && frame.rows != 0)
@@ -106,8 +127,34 @@ class KittyProtocol final: public img::ImageProtocol
     }
 
   private:
-    unsigned _live { 0 }; ///< Image id currently placed; 0 = nothing placed yet.
-    std::string _b64;     ///< Reused base64 buffer.
+    /// Builds the frame's base64 payload into _b64, compressing it first when asked to.
+    /// @param frame The frame to encode.
+    void buildPayload(img::Image const& frame)
+    {
+        if (!_deflator)
+        {
+            // Uncompressed: go straight from palette indices to base64, skipping the intermediate
+            // RGB buffer entirely. Byte-for-byte the same payload as expanding then encoding.
+            img::expandToBase64(_b64, frame);
+            return;
+        }
+
+        img::expandToRgb(_rgb, frame);
+        if (auto const result = _deflator->compress(_deflated, _rgb); !result)
+            // The level is validated at the CLI boundary and deflateBound sized the output, so a
+            // failure here is not a recoverable condition but a broken invariant (or OOM). The
+            // pure layer reports it as a value; encode() cannot, so it escalates.
+            throw std::runtime_error { "kitty: deflating the frame failed" };
+
+        _b64.clear();
+        base64::encode(_b64, _deflated);
+    }
+
+    unsigned _live { 0 };                    ///< Image id currently placed; 0 = nothing placed yet.
+    std::optional<zlib::Deflator> _deflator; ///< Engaged only when compressing (o=z).
+    std::vector<std::uint8_t> _rgb;          ///< Reused RGB expansion buffer (compressed path).
+    std::vector<std::uint8_t> _deflated;     ///< Reused deflate output buffer (compressed path).
+    std::string _b64;                        ///< Reused base64 buffer.
 };
 
 } // namespace kitty

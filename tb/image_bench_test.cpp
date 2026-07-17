@@ -13,6 +13,7 @@
  */
 
 #include <tb/base64.h>
+#include <tb/deflate.h>
 #include <tb/gip.h>
 #include <tb/image_protocol.h>
 #include <tb/iterm2.h>
@@ -24,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <ranges>
 #include <span>
 #include <string>
@@ -50,6 +52,71 @@ namespace
     return haystack.find(needle) != std::string_view::npos;
 }
 
+/// A reference base64 decoder, existing so tests can read back what base64::encode wrote.
+///
+/// Only tests need to decode, so this lives here rather than widening the product API (the same
+/// reasoning as decodePng below).
+///
+/// @param text Standard (padded) base64 text.
+/// @return The decoded bytes, or empty if @p text is not well-formed base64.
+[[nodiscard]] std::vector<std::uint8_t> decodeBase64(std::string_view text)
+{
+    if (text.size() % 4 != 0)
+        return {};
+
+    auto const valueOf = [](char c) -> int {
+        auto const* found = std::ranges::find(base64::Alphabet, c);
+        // Alphabet is NUL-terminated, so its last element is not a real symbol.
+        auto const index = std::ranges::distance(std::ranges::begin(base64::Alphabet), found);
+        return index < 64 ? static_cast<int>(index) : -1;
+    };
+
+    std::vector<std::uint8_t> out;
+    out.reserve(text.size() / 4 * 3);
+    for (std::size_t i = 0; i < text.size(); i += 4)
+    {
+        auto const quantum = text.substr(i, 4);
+        auto const padding = static_cast<std::size_t>(std::ranges::count(quantum, '='));
+        if (padding > 2)
+            return {};
+
+        std::uint32_t bits = 0;
+        for (auto const j: std::views::iota(std::size_t { 0 }, std::size_t { 4 }))
+        {
+            auto const symbol = quantum[j] == '=' ? 0 : valueOf(quantum[j]);
+            if (symbol < 0)
+                return {};
+            bits = (bits << 6) | static_cast<std::uint32_t>(symbol);
+        }
+
+        for (auto const j: std::views::iota(std::size_t { 0 }, std::size_t { 3 } - padding))
+            out.push_back(static_cast<std::uint8_t>((bits >> (16 - 8 * j)) & 0xFFu));
+    }
+    return out;
+}
+
+/// Inflates @p compressed, which must expand to exactly @p expectedSize bytes.
+///
+/// Reading a payload back with zlib rather than by hand is what keeps these tests a check on the
+/// encoder rather than a restatement of it, and it works at any compression level.
+///
+/// @param compressed   A complete RFC 1950 zlib stream.
+/// @param expectedSize The exact size the stream must inflate to.
+/// @return The inflated bytes, or nullopt if the stream is invalid or a different size.
+[[nodiscard]] std::optional<std::vector<std::uint8_t>> inflateExactly(
+    std::span<std::uint8_t const> compressed, std::size_t expectedSize)
+{
+    // uncompress() wants a writable destination even when it will write nothing into it, and a
+    // zero-sized vector has no data() to hand over.
+    std::vector<std::uint8_t> out(std::max(expectedSize, std::size_t { 1 }));
+    auto size = static_cast<uLongf>(out.size());
+    if (uncompress(out.data(), &size, compressed.data(), static_cast<uLong>(compressed.size())) != Z_OK
+        || size != expectedSize)
+        return std::nullopt;
+    out.resize(expectedSize);
+    return out;
+}
+
 /// @return A big-endian 32-bit integer read from @p data at @p offset.
 [[nodiscard]] std::uint32_t readBE32(std::span<std::uint8_t const> data, std::size_t offset)
 {
@@ -59,8 +126,9 @@ namespace
            | static_cast<std::uint32_t>(data[offset + 3]);
 }
 
-/// A minimal reference PNG decoder covering exactly what png::encode emits (8-bit RGB, filter 0,
-/// stored DEFLATE blocks). Verifies every chunk CRC and the zlib Adler-32 along the way.
+/// A minimal reference PNG decoder covering exactly what png::encode emits (8-bit RGB, filter 0).
+/// Verifies every chunk CRC along the way, and inflates the IDAT stream with zlib, which checks the
+/// RFC 1950 header and trailing Adler-32 itself -- so this decodes any compression level.
 ///
 /// @param png   The encoded PNG bytes.
 /// @param width Out: decoded image width.
@@ -103,36 +171,19 @@ namespace
             break;
     }
 
-    if (idat.size() < 6)
+    if (idat.empty())
         return {};
 
-    // Inflate the stored-block DEFLATE stream (skip the 2-byte zlib header).
-    std::vector<std::uint8_t> raw;
-    std::size_t position = 2;
-    bool final = false;
-    while (!final && position + 5 <= idat.size())
-    {
-        auto const header = idat[position++];
-        final = (header & 0x01u) != 0;
-        if (((header >> 1) & 0x03u) != 0) // only stored blocks are emitted
-            return {};
-        auto const len =
-            static_cast<std::size_t>(idat[position]) | (static_cast<std::size_t>(idat[position + 1]) << 8);
-        position += 4; // LEN + NLEN
-        if (position + len > idat.size())
-            return {};
-        raw.insert(raw.end(),
-                   idat.begin() + static_cast<std::ptrdiff_t>(position),
-                   idat.begin() + static_cast<std::ptrdiff_t>(position + len));
-        position += len;
-    }
-
-    // Trailing Adler-32 must match a fresh checksum of the inflated data.
-    if (position + 4 > idat.size() || readBE32(idat, position) != png::detail::adler32(raw))
+    // Inflate the IDAT zlib stream. Decoding it with zlib rather than by hand keeps this decoder
+    // independent of the level png::encode was given: stored and deflated blocks look the same
+    // from here. zlib validates the RFC 1950 header and the trailing Adler-32 itself.
+    auto const rowBytes = static_cast<std::size_t>(width) * 3u;
+    auto const inflated = inflateExactly(idat, static_cast<std::size_t>(height) * (1u + rowBytes));
+    if (!inflated)
         return {};
+    auto const& raw = *inflated;
 
     // Strip the per-row filter byte (must be 0 = None).
-    auto const rowBytes = static_cast<std::size_t>(width) * 3u;
     std::vector<std::uint8_t> rgb;
     rgb.reserve(static_cast<std::size_t>(height) * rowBytes);
     for (auto const y: std::views::iota(0u, height))
@@ -164,6 +215,24 @@ TEST_CASE("base64 encodes RFC 4648 vectors", "[base64]")
     CHECK(encode("foob") == "Zm9vYg==");
     CHECK(encode("fooba") == "Zm9vYmE=");
     CHECK(encode("foobar") == "Zm9vYmFy");
+}
+
+TEST_CASE("the reference base64 decoder inverts the encoder", "[base64]")
+{
+    // decodeBase64 is the oracle other tests read payloads back with, so it is worth pinning
+    // against the RFC vectors rather than trusting it.
+    auto const decode = [](std::string_view text) {
+        auto const bytes = decodeBase64(text);
+        return std::string { bytes.begin(), bytes.end() };
+    };
+
+    CHECK(decode("") == "");
+    CHECK(decode("Zg==") == "f");
+    CHECK(decode("Zm8=") == "fo");
+    CHECK(decode("Zm9v") == "foo");
+    CHECK(decode("Zm9vYmFy") == "foobar");
+    CHECK(decodeBase64("abc").empty());  // not a whole number of quanta
+    CHECK(decodeBase64("a!!=").empty()); // not in the alphabet
 }
 
 TEST_CASE("expanding to RGB looks each pixel up in the palette", "[image]")
@@ -225,6 +294,72 @@ TEST_CASE("expanding to base64 handles an empty frame", "[image]")
     CHECK(out.empty()); // replaces its sink rather than appending to it
 }
 
+TEST_CASE("deflate round-trips through inflate", "[zlib]")
+{
+    std::vector<std::uint8_t> data;
+    for (auto const i: std::views::iota(0u, 10000u))
+        data.push_back(static_cast<std::uint8_t>(i / 40)); // compressible: long runs
+
+    zlib::Deflator deflator { zlib::FastestLevel };
+    std::vector<std::uint8_t> compressed;
+    REQUIRE(deflator.compress(compressed, data).has_value());
+    CHECK(compressed.size() < data.size());
+
+    auto const restored = inflateExactly(compressed, data.size());
+    REQUIRE(restored.has_value());
+    CHECK(*restored == data);
+}
+
+TEST_CASE("deflate reuses its stream across frames", "[zlib]")
+{
+    // The stream is reset rather than recreated per call, so a second call must not inherit any
+    // state from the first -- otherwise a benchmark loop would corrupt every frame after the first.
+    zlib::Deflator deflator { zlib::FastestLevel };
+
+    std::vector<std::uint8_t> const first(500, 0xABu);
+    std::vector<std::uint8_t> const second(700, 0xCDu);
+
+    std::vector<std::uint8_t> a;
+    std::vector<std::uint8_t> b;
+    std::vector<std::uint8_t> again;
+    REQUIRE(deflator.compress(a, first).has_value());
+    REQUIRE(deflator.compress(b, second).has_value());
+    REQUIRE(deflator.compress(again, first).has_value());
+
+    CHECK(a == again); // the same input compresses identically however many frames preceded it
+    CHECK(a != b);
+}
+
+TEST_CASE("deflate reports an unusable level rather than compressing", "[zlib]")
+{
+    std::vector<std::uint8_t> const data(16, 0u);
+    std::vector<std::uint8_t> out;
+
+    zlib::Deflator deflator { 42 };
+    auto const result = deflator.compress(out, data);
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == zlib::Error::InvalidLevel);
+
+    CHECK(zlib::isValidLevel(zlib::NoCompression));
+    CHECK(zlib::isValidLevel(zlib::MaxLevel));
+    CHECK_FALSE(zlib::isValidLevel(zlib::MaxLevel + 1));
+    CHECK_FALSE(zlib::isValidLevel(-1));
+}
+
+TEST_CASE("deflate emits a valid stream for empty input", "[zlib]")
+{
+    zlib::Deflator deflator { zlib::FastestLevel };
+    std::vector<std::uint8_t> out;
+    REQUIRE(deflator.compress(out, {}).has_value());
+
+    // Empty in, but still a complete zlib stream: header plus terminator plus Adler-32.
+    CHECK(out.size() >= 6);
+
+    auto const restored = inflateExactly(out, 0);
+    REQUIRE(restored.has_value());
+    CHECK(restored->empty());
+}
+
 TEST_CASE("sixel emits DCS framing and palette registers", "[sixel]")
 {
     std::vector<img::Rgb> const palette { { 255, 0, 0 }, { 0, 255, 0 } };
@@ -284,6 +419,36 @@ TEST_CASE("image protocol registry resolves every protocol", "[registry]")
 
     // "sixel" must stay first: the default protocol is names.front().
     CHECK(names.front() == "sixel");
+}
+
+TEST_CASE("the registry carries encoder options through to the protocol", "[registry]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+    auto const image = img::Image { indices, 2, 2, palette };
+
+    auto const encodeWith = [&](std::string_view name, int level) {
+        auto const protocol = img::makeProtocol(name, img::ProtocolOptions { level });
+        REQUIRE(protocol != nullptr);
+        std::string out;
+        protocol->encode(out, image);
+        return out;
+    };
+
+    // A knob the driver sets has to actually reach the encoder; the o=z key is where that becomes
+    // observable for kitty.
+    CHECK(contains(encodeWith("kitty", zlib::FastestLevel), ",o=z"));
+    CHECK_FALSE(contains(encodeWith("kitty", zlib::NoCompression), "o=z"));
+
+    // Defaulted options must mean "no compression", so an unflagged run keeps its wire format.
+    auto const defaulted = img::makeProtocol("kitty");
+    REQUIRE(defaulted != nullptr);
+    std::string out;
+    defaulted->encode(out, image);
+    CHECK_FALSE(contains(out, "o=z"));
+
+    // Protocols that do not compress must tolerate the option rather than reject it.
+    CHECK_FALSE(encodeWith("sixel", zlib::MaxLevel).empty());
 }
 
 TEST_CASE("frame model is declared per protocol", "[registry][gip]")
@@ -351,7 +516,8 @@ TEST_CASE("gip-png emits a oneshot PNG message", "[gip]")
     auto expectedRgb = std::vector<std::uint8_t> {};
     img::expandToRgb(expectedRgb, img::Image { indices, 3, 2, palette });
     std::string expectedPng;
-    png::encode(expectedPng, expectedRgb, 3, 2);
+    zlib::Deflator deflator { zlib::NoCompression };
+    png::encode(expectedPng, expectedRgb, 3, 2, deflator);
     std::string expectedBody;
     base64::encode(expectedBody, bytesOf(expectedPng));
     CHECK(gipBody(out) == expectedBody);
@@ -570,13 +736,81 @@ TEST_CASE("kitty chunks payloads at the protocol limit", "[kitty]")
     CHECK(out.find("a=T") == out.rfind("a=T"));
 }
 
+TEST_CASE("kitty announces compression only when it compresses", "[kitty]")
+{
+    std::vector<img::Rgb> const palette { { 1, 2, 3 } };
+    std::vector<std::uint8_t> const indices(4, 0); // 2x2
+    auto const image = img::Image { indices, 2, 2, palette };
+
+    SECTION("uncompressed frames carry no o key")
+    {
+        kitty::KittyProtocol protocol;
+        std::string out;
+        protocol.encode(out, image);
+
+        // Claiming o=z without deflating would make the terminal inflate raw RGB and fail.
+        CHECK_FALSE(contains(out, "o=z"));
+    }
+
+    SECTION("compressed frames announce o=z")
+    {
+        kitty::KittyProtocol protocol { zlib::FastestLevel };
+        std::string out;
+        protocol.encode(out, image);
+
+        CHECK(contains(out, ",o=z"));
+    }
+}
+
+TEST_CASE("kitty transmits a compressed frame the terminal can inflate", "[kitty]")
+{
+    // The decisive check: reassemble the wire payload the way a terminal would -- concatenate the
+    // chunks, base64-decode, inflate -- and it must be exactly the frame's RGB bytes.
+    std::vector<img::Rgb> const palette { { 9, 8, 7 }, { 250, 128, 3 }, { 0, 0, 0 } };
+    std::vector<std::uint8_t> indices(4000);
+    for (auto const i: std::views::iota(std::size_t { 0 }, indices.size()))
+        indices[i] = static_cast<std::uint8_t>(i % 3);
+    auto const image = img::Image { indices, 100, 40, palette };
+
+    kitty::KittyProtocol protocol { zlib::MaxLevel };
+    std::string out;
+    protocol.encode(out, image);
+
+    // Concatenate every transmit escape's payload (between ';' and the closing ST).
+    std::string payload;
+    for (auto offset = out.find("\033_G"); offset != std::string::npos;
+         offset = out.find("\033_G", offset + 1))
+    {
+        auto const separator = out.find(';', offset);
+        auto const terminator = out.find("\033\\", offset);
+        if (separator == std::string::npos || separator > terminator)
+            continue; // a control-only escape (the delete) carries no payload
+        payload.append(out, separator + 1, terminator - separator - 1);
+    }
+    REQUIRE_FALSE(payload.empty());
+
+    auto const compressed = decodeBase64(payload);
+    REQUIRE_FALSE(compressed.empty());
+
+    std::vector<std::uint8_t> expected;
+    img::expandToRgb(expected, image);
+
+    auto const inflated = inflateExactly(compressed, expected.size());
+    REQUIRE(inflated.has_value());
+    CHECK(*inflated == expected);
+
+    // The point of compressing at all: fewer bytes than the raw RGB it stands for.
+    CHECK(compressed.size() < expected.size());
+}
+
 TEST_CASE("png is structurally valid and round-trips pixels", "[png]")
 {
     // 2x1 image: red, green.
     std::vector<std::uint8_t> const source { 255, 0, 0, 0, 255, 0 };
 
     std::string out;
-    png::encode(out, source, 2, 1);
+    zlib::Deflator deflator { zlib::NoCompression };
+    png::encode(out, source, 2, 1, deflator);
 
     CHECK(contains(out, "IHDR"));
     CHECK(contains(out, "IDAT"));
@@ -588,6 +822,38 @@ TEST_CASE("png is structurally valid and round-trips pixels", "[png]")
     CHECK(width == 2);
     CHECK(height == 1);
     CHECK(decoded == source);
+}
+
+TEST_CASE("png compresses when asked to, and still decodes", "[png]")
+{
+    // A compressible image: 64x64 of a single colour.
+    constexpr unsigned Width = 64;
+    constexpr unsigned Height = 64;
+    std::vector<std::uint8_t> source;
+    for ([[maybe_unused]] auto const i: std::views::iota(0u, Width * Height))
+    {
+        source.push_back(17u);
+        source.push_back(34u);
+        source.push_back(51u);
+    }
+
+    std::string stored;
+    zlib::Deflator storing { zlib::NoCompression };
+    png::encode(stored, source, Width, Height, storing);
+
+    std::string deflated;
+    zlib::Deflator deflating { zlib::MaxLevel };
+    png::encode(deflated, source, Width, Height, deflating);
+
+    // Level 0 is the default precisely because it does not compress; a level above it must.
+    CHECK(deflated.size() < stored.size());
+
+    unsigned width = 0;
+    unsigned height = 0;
+    auto const decoded = decodePng(deflated, width, height);
+    CHECK(width == Width);
+    CHECK(height == Height);
+    CHECK(decoded == source); // same pixels, fewer bytes
 }
 
 TEST_CASE("iterm2 wraps a PNG in an OSC 1337 sequence", "[iterm2]")

@@ -14,6 +14,7 @@
 #pragma once
 
 #include <tb/base64.h>
+#include <tb/deflate.h>
 #include <tb/image_protocol.h>
 #include <tb/png.h>
 
@@ -114,20 +115,24 @@ class GipProtocol final: public img::ImageProtocol
 /// GIP transmitting PNG (`f=4`) in a oneshot message.
 ///
 /// The other side of the wire-size/CPU trade: in principle fewer bytes for the cost of encoding
-/// every frame. In practice this encoder emits *stored* DEFLATE blocks, so it compresses nothing:
-/// measured against `gip` on a plasma frame it produces the same 1.83 MB/frame for ~2.6x the encode
-/// time. That is a real answer about this codec rather than a reason to omit the row -- and it is
-/// why the trade is worth measuring rather than assuming.
+/// every frame. At the default zlib::NoCompression the PNG payload is merely *stored*, so it
+/// compresses nothing: measured against `gip` on a plasma frame it produces the same 1.83 MB/frame
+/// for ~2.6x the encode time. That is a real answer about this codec rather than a reason to omit
+/// the row -- and it is why the trade is worth measuring rather than assuming. Raising the
+/// compression level is what turns the trade from hypothetical into observable.
 class GipPngProtocol final: public img::ImageProtocol
 {
   public:
+    /// @param compressionLevel zlib deflate level for the PNG payload.
+    explicit GipPngProtocol(int compressionLevel = zlib::NoCompression): _deflator { compressionLevel } {}
+
     [[nodiscard]] std::string_view name() const noexcept override { return "gip-png"; }
 
     void encode(std::string& out, img::Image const& frame) override
     {
         img::expandToRgb(_rgb, frame);
         _png.clear();
-        png::encode(_png, _rgb, frame.width, frame.height);
+        png::encode(_png, _rgb, frame.width, frame.height, _deflator);
 
         out += "\033P!go=s,";
         detail::appendHeader(out, "f", detail::FormatPng);
@@ -144,6 +149,7 @@ class GipPngProtocol final: public img::ImageProtocol
     }
 
   private:
+    zlib::Deflator _deflator;       ///< Deflates the PNG payload; carries the level.
     std::vector<std::uint8_t> _rgb; ///< Reused RGB expansion buffer.
     std::string _png;               ///< Reused PNG buffer.
 };

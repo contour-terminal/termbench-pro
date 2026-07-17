@@ -14,6 +14,7 @@
 #pragma once
 
 #include <tb/base64.h>
+#include <tb/deflate.h>
 #include <tb/image_protocol.h>
 #include <tb/png.h>
 
@@ -30,9 +31,16 @@ namespace iterm2
 /// The frame is expanded to RGB, encoded as a PNG (via the self-contained png encoder), then
 /// base64-encoded into a single OSC 1337 sequence. The program homes the cursor each frame so
 /// successive images overwrite in place.
+///
+/// The compression level reaches the PNG encoder through the deflator this owns; at
+/// zlib::NoCompression — the default — the PNG payload is stored rather than compressed, which is
+/// what this protocol has always transmitted.
 class Iterm2Protocol final: public img::ImageProtocol
 {
   public:
+    /// @param compressionLevel zlib deflate level for the PNG payload.
+    explicit Iterm2Protocol(int compressionLevel = zlib::NoCompression): _deflator { compressionLevel } {}
+
     [[nodiscard]] std::string_view name() const noexcept override { return "iterm2"; }
 
     void encode(std::string& out, img::Image const& frame) override
@@ -40,7 +48,7 @@ class Iterm2Protocol final: public img::ImageProtocol
         img::expandToRgb(_rgb, frame);
 
         _png.clear();
-        png::encode(_png, _rgb, frame.width, frame.height);
+        png::encode(_png, _rgb, frame.width, frame.height, _deflator);
 
         _b64.clear();
         base64::encode(_b64, { reinterpret_cast<std::uint8_t const*>(_png.data()), _png.size() });
@@ -55,6 +63,7 @@ class Iterm2Protocol final: public img::ImageProtocol
     }
 
   private:
+    zlib::Deflator _deflator;       ///< Deflates the PNG payload; carries the level.
     std::vector<std::uint8_t> _rgb; ///< Reused RGB expansion buffer.
     std::string _png;               ///< Reused PNG buffer.
     std::string _b64;               ///< Reused base64 buffer.

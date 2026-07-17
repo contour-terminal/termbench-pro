@@ -14,6 +14,7 @@
 #pragma once
 
 #include <tb/base64.h>
+#include <tb/deflate.h>
 
 #include <algorithm>
 #include <array>
@@ -175,14 +176,30 @@ inline void expandToBase64(std::string& out, Image const& frame)
         it = std::ranges::copy(table[index], it).out;
 }
 
+/// Knobs the driver supplies to protocol encoders at construction.
+///
+/// A struct rather than extra registry columns, so that adding a knob does not reshape the registry
+/// table, and a protocol that does not care simply ignores it.
+struct ProtocolOptions
+{
+    /// The zlib deflate level protocols that compress should use.
+    ///
+    /// zlib::NoCompression means: do not compress at all. Kitty then transmits raw RGB and omits
+    /// its o=z key, and the PNG encoder emits stored blocks — i.e. each protocol's uncompressed
+    /// wire format. Higher levels trade client CPU for fewer bytes on the wire.
+    int compressionLevel { zlib::NoCompression };
+};
+
 /// Constructs the image protocol registered under @p name.
 ///
 /// This is the data-driven seam: adding a protocol is one new row in the registry table plus
 /// its encoder — no call site changes.
 ///
-/// @param name One of protocolNames().
+/// @param name    One of protocolNames().
+/// @param options Knobs the encoder may honour; protocols that do not care ignore them.
 /// @return The protocol instance, or nullptr if @p name is unknown.
-[[nodiscard]] std::unique_ptr<ImageProtocol> makeProtocol(std::string_view name);
+[[nodiscard]] std::unique_ptr<ImageProtocol> makeProtocol(std::string_view name,
+                                                          ProtocolOptions const& options = {});
 
 /// @return The names of all registered image protocols, in registration order.
 [[nodiscard]] std::vector<std::string_view> protocolNames();

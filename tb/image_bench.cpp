@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+#include <tb/deflate.h>
 #include <tb/image_protocol.h>
 #include <tb/plasma.h>
 
@@ -100,6 +101,8 @@ struct Args
     std::optional<double> durationSeconds;
     double speed = 1.0;
     unsigned poolFrames = DefaultPoolFrames;
+    /// zlib deflate level for the protocols that compress; zlib::NoCompression disables it.
+    int compressionLevel = zlib::NoCompression;
     /// Where the summary goes. Empty means stdout.
     ///
     /// Needed to measure against a real terminal at all: stdout carries the image data, so it has
@@ -511,13 +514,20 @@ enum class GipError
 /// Prints the end-of-run benchmark summary.
 void printSummary(std::ostream& os, Args const& args, Geometry const& geometry, plasma::Summary const& s)
 {
-    auto const protocol = img::makeProtocol(args.protocol);
+    auto const protocol = img::makeProtocol(args.protocol, img::ProtocolOptions { args.compressionLevel });
     auto const cyclic = protocol && protocol->frameModel() == img::FrameModel::Cyclic;
 
     os << '\n';
     os << std::format("Image protocol benchmark — {}\n", args.protocol);
     os << std::format(
         "  Resolution     : {}x{} px, {} colors\n", geometry.imageWidth, geometry.imageHeight, args.colors);
+    // Record what produced these numbers: compressed and uncompressed runs measure different
+    // things, so a captured summary has to say which one it is.
+    if (args.compressionLevel != zlib::NoCompression)
+        os << std::format("  Compression    : zlib level {} — NOT comparable with uncompressed runs:\n"
+                          "                   the bytes counted are compressed ones, and deflating\n"
+                          "                   them is charged to this program, not to the terminal.\n",
+                          args.compressionLevel);
     if (cyclic)
         os << std::format("  Frame model    : cyclic, {} pooled frames — NOT comparable with streaming\n"
                           "                   protocols: the pixels are uploaded once, so compute and\n"
@@ -566,6 +576,14 @@ void printUsage(std::string_view program)
                              "  --speed F         Animation speed multiplier; default: 1.0\n"
                              "  --pool-frames N   Frames a pooling protocol (gip-upload) uploads and\n"
                              "                    then cycles; default: 16\n"
+                             "  --compression-level N\n"
+                             "                    zlib deflate level, 0..9; default: 0 (no\n"
+                             "                    compression). Honoured by kitty (via o=z) and by\n"
+                             "                    the PNG protocols (iterm2, gip-png); ignored by\n"
+                             "                    the others. Compressed runs are NOT comparable\n"
+                             "                    with uncompressed ones: they measure the\n"
+                             "                    terminal's inflate path, and the deflating is\n"
+                             "                    charged to this program.\n"
                              "  --output FILE     Write the summary here instead of stdout. Needed to\n"
                              "                    benchmark a real terminal, since stdout is the image\n"
                              "                    data and must go to the terminal itself.\n"
@@ -710,6 +728,22 @@ void printUsage(std::string_view program)
                 return std::unexpected(EXIT_FAILURE);
             args.poolFrames = std::max(1u, value.value_or(DefaultPoolFrames));
         }
+        else if (arg == "--compression-level"sv)
+        {
+            std::optional<unsigned> value;
+            if (!takeUnsigned(i, value, arg))
+                return std::unexpected(EXIT_FAILURE);
+            // Rejected rather than clamped: a level the encoder would silently ignore would make
+            // the summary claim a compression that never happened.
+            auto const level = static_cast<int>(value.value_or(0u));
+            if (!value || !zlib::isValidLevel(level))
+            {
+                std::cerr << std::format(
+                    "Invalid level for {}; expected {}..{}.\n", arg, zlib::NoCompression, zlib::MaxLevel);
+                return std::unexpected(EXIT_FAILURE);
+            }
+            args.compressionLevel = level;
+        }
         else if (arg == "--speed"sv)
         {
             auto const value = takeDouble(i, arg);
@@ -848,7 +882,7 @@ class CyclicFrameSource final: public FrameSource
                                       TerminalSession const& session)
 {
     auto const palette = plasma::makePalette(args.colors);
-    auto protocol = img::makeProtocol(args.protocol);
+    auto protocol = img::makeProtocol(args.protocol, img::ProtocolOptions { args.compressionLevel });
     auto frameSource = makeFrameSource(*protocol, args, geometry, palette);
 
     std::string frame;

@@ -46,3 +46,18 @@ image-bench --help                  # all options (colors, size, fps cap, durati
 ```
 
 For scripted/non-interactive benchmarking, `--duration S` auto-exits after `S` seconds.
+
+### Compression
+
+`--compression-level N` (0..9) sets the zlib deflate level for the protocols that can compress:
+`kitty` (via the graphics protocol's `o=z`) and the PNG-based ones (`iterm2`, `gip-png`). The
+others ignore it.
+
+The default is `0`, meaning **no compression** — kitty transmits raw RGB and the PNG payload is
+merely stored, which is what these protocols have always sent.
+
+A compressed run measures a *different thing* and its numbers are **not comparable** with an
+uncompressed one: the bytes counted are compressed bytes, it exercises the terminal's inflate path
+rather than its raw parse path, and the deflating is charged to `image-bench` rather than to the
+terminal. Measured on a 1000x1000 plasma frame, `kitty` gives up roughly half its frame rate at
+level 1 to send ~5.8x fewer bytes, and about two thirds of it at level 6 to send ~11x fewer.

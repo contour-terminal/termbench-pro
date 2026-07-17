@@ -14,6 +14,11 @@ if(NOT WIN32 AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release MinSizeRel RelWithDebInfo)
 endif()
 
+# zlib: the DEFLATE implementation behind image-bench's --compression-level (kitty's o=z and the
+# PNG encoder). Taken from the system rather than fetched: it is a system library on Linux and
+# macOS, ships with the vcpkg manifest on Windows, and its own CMake exports no namespaced target.
+find_package(ZLIB REQUIRED)
+
 include(FetchContent)
 FetchContent_Declare(
   glaze

@@ -5,7 +5,7 @@ target_link_libraries(tb PRIVATE termbench)
 
 # Multi-protocol image benchmark: an animated plasma rendered via Sixel / Kitty / iTerm2.
 add_executable(image-bench image_bench.cpp image_protocol.cpp)
-target_link_libraries(image-bench PRIVATE termbench)
+target_link_libraries(image-bench PRIVATE termbench ZLIB::ZLIB)
 
 # Set the RPATH so that the executables can find the shared libraries
 # when installed in a non-standard location
@@ -18,7 +18,7 @@ install(TARGETS tb image-bench RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 if(TERMBENCH_TESTING)
     add_executable(image_bench_test image_bench_test.cpp image_protocol.cpp)
-    target_link_libraries(image_bench_test PRIVATE termbench Catch2::Catch2WithMain)
+    target_link_libraries(image_bench_test PRIVATE termbench Catch2::Catch2WithMain ZLIB::ZLIB)
     # Catch2's TEST_CASE macro expands __COUNTER__, which recent Clang flags as a C2y extension
     # under -pedantic. It is a universally-supported builtin used only by the test framework, so
     # silence just this one diagnostic on the test target (Clang only; GCC does not flag it).
